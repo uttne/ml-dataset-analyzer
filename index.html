@@ -590,6 +590,7 @@
                         if (isRunning) return;
                         isRunning = true;
                         
+                        // Note: seed is handled inside runTSNE now
                         try {
                             await runTSNE(); 
                             renderPlot();
@@ -724,6 +725,21 @@
                     this.subModel = tf.model({ inputs: this.model.inputs, outputs: layer.output });
                     trElement.classList.add('layer-row-selected');
                 }
+                
+                // Reset cached data since the model output layer (and thus features) changed
+                if (typeof imagesData !== 'undefined') {
+                    imagesData.forEach(d => {
+                        d.features = null;
+                        d.coords2D = null;
+                        d.coords3D = null;
+                    });
+                    // Reset UI state to encourage re-run
+                    const plotDiv = document.getElementById('plotDiv');
+                    if (plotDiv) plotDiv.innerHTML = '';
+                    const emptyState = document.getElementById('emptyState');
+                    if (emptyState) emptyState.style.display = 'flex';
+                }
+
                 const dim = this.getOutputDim();
                 document.getElementById('modelOutputInfo').innerText = `Feature Dim: ${dim}`;
             }
@@ -857,7 +873,6 @@
             try {
                 await processImages(); // This will now skip if features exist
                 calculateStats();
-                
                 // seed logic is now inside runTSNE
                 await runTSNE();
                 renderPlot();
