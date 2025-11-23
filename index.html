@@ -1,0 +1,1168 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Dataset Analyzer (Multi-Model Support)</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    
+    <!-- TensorFlow.js (v4.22.0) -->
+    <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@4.22.0/dist/tf.min.js"></script>
+    
+    <!-- JSZip for unzipping model files -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
+
+    <!-- t-SNE implementation -->
+    <script src="https://cdn.jsdelivr.net/gh/karpathy/tsnejs@master/tsne.js"></script>
+    <!-- Plotly.js -->
+    <script src="https://cdn.plot.ly/plotly-2.20.0.min.js"></script>
+    
+    <style>
+        @keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
+        .animate-fade-in { animation: fadeIn 0.2s ease-in-out; }
+        /* Custom Scrollbar */
+        ::-webkit-scrollbar { width: 8px; height: 8px; }
+        ::-webkit-scrollbar-track { background: #1f2937; }
+        ::-webkit-scrollbar-thumb { background: #4b5563; border-radius: 4px; }
+        ::-webkit-scrollbar-thumb:hover { background: #6b7280; }
+        
+        /* JS Tooltip Styling */
+        #js-tooltip {
+            position: fixed;
+            z-index: 1000;
+            display: none;
+            width: 240px;
+            background-color: #111827;
+            color: #e5e7eb;
+            border: 1px solid #374151;
+            border-radius: 6px;
+            padding: 10px;
+            font-size: 0.75rem;
+            line-height: 1.4;
+            box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.5);
+            pointer-events: none; /* Mouse passes through */
+        }
+        .has-tooltip {
+            border-bottom: 1px dotted #9ca3af;
+            cursor: help;
+        }
+        /* Selected Row Styling */
+        .layer-row-selected {
+            background-color: #1e3a8a !important; /* blue-900 */
+            border-left: 4px solid #3b82f6; /* blue-500 */
+        }
+        .layer-row-clickable:hover {
+            background-color: #374151; /* gray-700 */
+            cursor: pointer;
+        }
+
+        /* Plot Container for Canvas Overlay */
+        #plotContainer {
+            position: relative;
+            width: 100%;
+            height: 100%;
+        }
+        #plotCanvas {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            pointer-events: none; /* Let mouse events pass through to Plotly */
+            z-index: 10;
+        }
+    </style>
+</head>
+<body class="bg-gray-900 text-white min-h-screen font-sans flex flex-col">
+
+    <!-- Global Tooltip Element -->
+    <div id="js-tooltip"></div>
+
+    <div class="container mx-auto p-6 max-w-6xl flex-grow">
+        <header class="mb-8 border-b border-gray-700 pb-4">
+            <h1 class="text-3xl font-bold text-blue-400 mb-2">Dataset Analyzer <span class="text-sm text-green-400 font-normal">(Multi-Model Edition)</span></h1>
+            <p class="text-gray-400 text-sm">
+                <span class="font-bold text-white">Deep Learning</span> を使用して画像の特徴量を抽出・分析します。<br>
+                Custom Model (ZIP) では、Summary表をクリックして出力レイヤーを選択できます。
+            </p>
+        </header>
+
+        <!-- Configuration Area -->
+        <div class="bg-gray-800 rounded-lg p-6 mb-6 shadow-lg border border-gray-700">
+            <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
+                <!-- Left Column: Input & Settings -->
+                <div class="flex flex-col gap-6">
+                    <!-- File Input -->
+                    <div>
+                        <label class="block text-sm font-medium text-gray-300 mb-2">1. 画像フォルダを選択</label>
+                        <div class="flex items-center space-x-4">
+                            <label class="cursor-pointer bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded shadow transition flex items-center">
+                                <svg class="w-5 h-5 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 7v10a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-6l-2-2H5a2 2 0 00-2 2z"></path></svg>
+                                <span>フォルダを選択...</span>
+                                <input type="file" id="fileInput" webkitdirectory directory multiple class="hidden" accept="image/*">
+                            </label>
+                            <span id="fileCount" class="text-gray-400 text-sm">未選択</span>
+                        </div>
+                        <p class="text-xs text-gray-500 mt-2">※ フォルダ内のサブフォルダ名を「クラス名」として認識します。</p>
+                    </div>
+
+                    <!-- Parameters -->
+                    <div>
+                        <label class="block text-sm font-medium text-gray-300 mb-2">2. 設定</label>
+                        <div class="flex flex-wrap items-end gap-4">
+                            
+                            <!-- Model Selection (Default: Custom ZIP) -->
+                            <div class="flex flex-col w-full sm:w-auto">
+                                <span class="text-xs text-gray-400 block has-tooltip mb-1" data-tooltip-title="Feature Extractor" data-tooltip-content="特徴抽出に使用するモデルです。<br>・Custom: ZIP形式(model.json + .bin)をアップロード">Model</span>
+                                <select id="modelSelect" class="bg-gray-700 border border-gray-600 rounded px-2 py-1 text-sm w-full sm:w-44 text-white focus:ring-2 focus:ring-blue-500 outline-none h-[30px]">
+                                    <option value="custom_zip" selected>Custom (Upload ZIP)</option>
+                                    <option value="mobilenet_v2">MobileNet v2</option>
+                                    <option value="mobilenet_v3_large">MobileNet v3 Large</option>
+                                    <option value="resnet50_v2">ResNet50 v2</option>
+                                </select>
+                            </div>
+                            
+                            <!-- Custom Model File Input (Shown by default) -->
+                            <div id="customModelInputArea" class="flex flex-col w-full">
+                                <span class="text-xs text-gray-400 mb-1">Model ZIP (model.json + .bin)</span>
+                                <label class="cursor-pointer bg-gray-600 hover:bg-gray-500 text-white px-3 py-1 rounded text-xs flex items-center justify-center h-[30px]">
+                                    <span id="modelZipLabel">Select ZIP...</span>
+                                    <input type="file" id="modelZipInput" class="hidden" accept=".zip">
+                                </label>
+                            </div>
+
+                            <div class="flex gap-4">
+                                <div>
+                                    <span class="text-xs text-gray-400 block has-tooltip mb-1" data-tooltip-title="Perplexity" data-tooltip-content="近傍点の数を制御するパラメータ。<br>推奨値: 5〜50">Perplexity</span>
+                                    <input type="number" id="perplexity" value="20" class="bg-gray-700 border border-gray-600 rounded px-2 py-1 text-sm w-16 text-white focus:ring-2 focus:ring-blue-500 outline-none h-[30px]">
+                                </div>
+
+                                <div>
+                                    <span class="text-xs text-gray-400 block has-tooltip mb-1" data-tooltip-title="Iterations" data-tooltip-content="最適化計算を繰り返す回数。<br>推奨値: 250以上">Iterations</span>
+                                    <input type="number" id="iterations" value="500" class="bg-gray-700 border border-gray-600 rounded px-2 py-1 text-sm w-16 text-white focus:ring-2 focus:ring-blue-500 outline-none h-[30px]">
+                                </div>
+                            </div>
+
+                            <!-- Random Seed UI -->
+                            <div class="flex flex-col">
+                                <span class="text-xs text-gray-400 block has-tooltip mb-1" data-tooltip-title="Random Seed" data-tooltip-content="計算の再現性を制御します。Fixedで常に同じ結果になります。">Seed</span>
+                                <div class="flex items-center gap-2">
+                                    <div class="flex items-center h-[30px] bg-gray-700 border border-gray-600 rounded px-2">
+                                        <input type="checkbox" id="useFixedSeed" checked class="w-3 h-3 text-blue-600 bg-gray-600 border-gray-500 rounded focus:ring-blue-500 focus:ring-2">
+                                        <label for="useFixedSeed" class="ml-1 text-xs text-gray-300 cursor-pointer select-none">Fix</label>
+                                    </div>
+                                    <input type="number" id="seedValue" value="12345" class="bg-gray-700 border border-gray-600 rounded px-2 py-1 text-sm w-20 text-white focus:ring-2 focus:ring-blue-500 outline-none transition-opacity disabled:opacity-50 h-[30px]" placeholder="Seed">
+                                </div>
+                            </div>
+
+                            <button id="runBtn" disabled class="bg-green-600 hover:bg-green-700 disabled:bg-gray-600 disabled:cursor-not-allowed text-white px-6 py-2 rounded shadow transition font-bold ml-auto h-[30px] flex items-center">
+                                読込中...
+                            </button>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Right Column: Model Info -->
+                <div class="bg-gray-700 rounded-lg p-4 border border-gray-600 flex flex-col h-[600px]">
+                    <h3 class="text-sm font-bold text-blue-300 mb-2 border-b border-gray-600 pb-2 flex items-center justify-between">
+                        <span>Model Information</span>
+                        <span id="modelName" class="text-white font-normal bg-gray-600 px-2 py-0.5 rounded text-xs">No Model Loaded</span>
+                    </h3>
+                    
+                    <!-- Model Description -->
+                    <div id="modelDescription" class="text-xs text-gray-300 mb-3">
+                        <p class="text-gray-500">ZIPファイルを選択してモデルを読み込んでください。</p>
+                    </div>
+
+                    <!-- Input/Output Specs -->
+                    <div class="bg-gray-800 rounded p-2 mb-3 text-xs font-mono border border-gray-600">
+                        <div class="flex justify-between mb-1">
+                            <span class="text-gray-500">Input Shape:</span>
+                            <span id="modelInputShape" class="text-green-400">...</span>
+                        </div>
+                        <div class="flex justify-between mb-1">
+                            <span class="text-gray-500">Output Shape:</span>
+                            <span id="modelOutputShape" class="text-yellow-400">...</span>
+                        </div>
+                        <div class="flex justify-between border-t border-gray-700 pt-1 mt-1">
+                            <span class="text-gray-500">Feature Dim:</span>
+                            <span id="modelFeatureDim" class="text-blue-400 font-bold">...</span>
+                        </div>
+                    </div>
+
+                    <!-- Model Summary Table -->
+                    <div class="flex-grow flex flex-col overflow-hidden relative">
+                        <div class="flex justify-between items-center border-t border-gray-600 pt-2 mb-2">
+                            <h4 class="text-xs font-bold text-gray-400 uppercase tracking-wider">Model Summary</h4>
+                            <span id="layerSelectionHint" class="text-[10px] text-yellow-400 hidden">Click row to select output layer</span>
+                        </div>
+                        
+                        <div class="overflow-y-auto pr-1 scrollbar-thin flex-grow bg-gray-800 rounded border border-gray-700">
+                            <table class="w-full text-xs text-left text-gray-300 border-collapse">
+                                <thead class="text-gray-500 bg-gray-900 sticky top-0 z-10 shadow-sm">
+                                    <tr>
+                                        <th class="py-1 pl-2">Layer (Type)</th>
+                                        <th class="py-1">Output Shape</th>
+                                        <th class="py-1 pr-2 text-right">Param #</th>
+                                    </tr>
+                                </thead>
+                                <tbody id="modelSummaryBody" class="divide-y divide-gray-700">
+                                    <tr><td colspan="3" class="p-2 text-center text-gray-600 italic">No model loaded</td></tr>
+                                </tbody>
+                            </table>
+                        </div>
+                        <div class="mt-2 text-right text-xs text-gray-500">
+                            <span id="totalParams">Total params: 0</span>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Status / Progress -->
+        <div id="statusArea" class="hidden mb-6">
+            <div class="bg-gray-800 rounded-lg p-4 border border-gray-700">
+                <div class="flex justify-between mb-2">
+                    <span id="statusText" class="text-blue-300 font-mono text-sm">準備中...</span>
+                    <span id="progressText" class="text-gray-400 text-sm">0%</span>
+                </div>
+                <div class="w-full bg-gray-700 rounded-full h-2.5">
+                    <div id="progressBar" class="bg-blue-500 h-2.5 rounded-full transition-all duration-300" style="width: 0%"></div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Plot Area -->
+        <div class="grid grid-cols-1 lg:grid-cols-3 gap-6 mb-6">
+            <!-- Main Plot -->
+            <div class="lg:col-span-2 bg-gray-800 rounded-lg p-1 shadow-lg h-[500px] relative border border-gray-700">
+                <!-- Plot Mode Toggle -->
+                <div class="absolute top-3 right-3 z-20 flex items-center bg-gray-900 bg-opacity-90 rounded border border-gray-600 p-1">
+                    <span class="text-xs text-gray-400 mr-2 pl-1">Plot Mode:</span>
+                    <label class="flex items-center cursor-pointer">
+                        <div class="relative">
+                            <input type="checkbox" id="plotModeToggle" class="sr-only">
+                            <div class="block bg-gray-600 w-10 h-5 rounded-full"></div>
+                            <div class="dot absolute left-1 top-1 bg-white w-3 h-3 rounded-full transition transform duration-200 ease-in-out"></div>
+                        </div>
+                        <span id="plotModeLabel" class="ml-2 text-xs text-white font-bold w-12">Points</span>
+                    </label>
+                </div>
+
+                <!-- Plot Container -->
+                <div id="plotContainer" class="w-full h-full rounded-lg overflow-hidden bg-[#1f2937]">
+                    <div id="plotDiv" class="w-full h-full"></div>
+                    <canvas id="plotCanvas" class="hidden"></canvas>
+                </div>
+
+                <div id="plotPlaceholder" class="absolute inset-0 flex items-center justify-center text-gray-500 pointer-events-none">
+                    <div class="text-center">
+                        <svg class="w-16 h-16 mx-auto mb-2 opacity-50" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M7 12l3-3 3 3 4-4M8 21l4-4 4 4M3 4h18M4 4h16v12a1 1 0 01-1 1H5a1 1 0 01-1-1V4z"></path></svg>
+                        グラフはここに表示されます
+                    </div>
+                </div>
+            </div>
+
+            <!-- Image Preview -->
+            <div class="bg-gray-800 rounded-lg p-4 shadow-lg h-[500px] flex flex-col border border-gray-700">
+                <h3 class="text-sm font-bold border-b border-gray-600 pb-2 mb-2 text-gray-300 uppercase tracking-wider">Image Preview</h3>
+                <div id="hoverInfo" class="flex-grow flex items-center justify-center text-gray-500 bg-gray-900 rounded border border-gray-700 p-4 overflow-hidden">
+                    <p class="text-center text-sm">プロット上の点に<br>マウスを合わせると<br>ここに画像が表示されます</p>
+                </div>
+            </div>
+        </div>
+
+        <!-- Statistics Section (KDE via Plotly) -->
+        <div id="statsSection" class="bg-gray-800 rounded-lg p-6 shadow-lg border border-gray-700 hidden">
+            <h3 class="text-lg font-bold text-white mb-4 flex items-center">
+                <svg class="w-5 h-5 mr-2 text-yellow-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z"></path></svg>
+                Cluster Statistics (特徴量の散らばり分析)
+            </h3>
+            
+            <!-- Metrics Table -->
+            <div class="overflow-x-auto mb-6 border border-gray-700 rounded-lg">
+                <table class="min-w-full text-sm text-left text-gray-300">
+                    <thead class="text-xs text-gray-400 uppercase bg-gray-700">
+                        <tr>
+                            <th scope="col" class="px-4 py-3">Category</th>
+                            <th scope="col" class="px-4 py-3">Count</th>
+                            <th scope="col" class="px-4 py-3 text-right has-tooltip" title="重心からの平均ユークリッド距離。値が小さいほどまとまっています。">Mean Dist.</th>
+                            <th scope="col" class="px-4 py-3 text-right has-tooltip" title="重心から最も遠い点までの距離。">Max Dist.</th>
+                            <th scope="col" class="px-4 py-3 text-right has-tooltip" title="重心からの距離の標準偏差。値が小さいほど均質です。">Dispersion</th>
+                            <th scope="col" class="px-4 py-3 text-right has-tooltip" title="重心ベクトルと各点の「向き」の類似度平均。1.0に近いほど方向がまとまっています。">Cosine Sim.</th>
+                        </tr>
+                    </thead>
+                    <tbody id="statsTableBody" class="bg-gray-800 divide-y divide-gray-700"></tbody>
+                </table>
+            </div>
+
+            <!-- KDE Plot Header -->
+            <div class="flex flex-col mb-2">
+                <div class="flex items-center justify-between mb-2">
+                    <h4 class="text-sm font-bold text-gray-300 flex items-center">
+                        Distribution Visualization (KDE)
+                    </h4>
+                    <div class="flex items-center space-x-2">
+                        <label for="kdeMetric" class="text-xs text-gray-400">Display Metric:</label>
+                        <select id="kdeMetric" class="bg-gray-700 border border-gray-600 text-white text-sm rounded px-2 py-1 focus:ring-2 focus:ring-blue-500 outline-none">
+                            <option value="dist">Distance to Centroid (重心からの距離)</option>
+                            <option value="cos">Cosine Similarity (コサイン類似度)</option>
+                        </select>
+                    </div>
+                </div>
+                <div class="bg-gray-800 border border-gray-600 rounded p-3 text-xs text-gray-300 mb-1">
+                    <p class="font-bold mb-1 text-blue-300">グラフの見方 (KDE / Violin Plot):</p>
+                    <ul class="list-disc list-inside space-y-1 ml-1">
+                        <li>各カテゴリのデータの<strong>分布形状</strong>を表しています。</li>
+                        <li><span class="text-green-400 font-bold">縦の厚み（密度）</span>：その値におけるデータの集中度（頻度）を表します。</li>
+                        <li><span class="text-yellow-400 font-bold">横の広がり（範囲）</span>：値のばらつき範囲を示します。</li>
+                        <li><strong>並び順</strong>：上の表と同じ順序（凝集度が高い順）で上から並んでいます。</li>
+                    </ul>
+                </div>
+            </div>
+
+            <!-- KDE Plot -->
+            <div class="bg-gray-900 rounded border border-gray-700 p-1">
+                <div id="kdeDiv" class="w-full h-[400px]"></div>
+            </div>
+            
+            <p class="text-xs text-gray-500 mt-3 text-right">※ 特徴量は選択されたモデル（<span id="modelNameDisplay">MobileNet</span>）の出力を用いて計算しています。</p>
+        </div>
+
+    </div>
+
+    <footer class="p-4 text-center text-gray-600 text-sm border-t border-gray-800">
+        Powered by TensorFlow.js, Plotly.js, and Karpathy's t-SNE.
+    </footer>
+
+    <script>
+        // ==========================================
+        // Constants & Palettes
+        // ==========================================
+        // D3 Category10 Palette
+        const COLOR_PALETTE = [
+            '#1f77b4', '#ff7f0e', '#2ca02c', '#d62728', '#9467bd', 
+            '#8c564b', '#e377c2', '#7f7f7f', '#bcbd22', '#17becf'
+        ];
+
+        // ==========================================
+        // Model Handler Class
+        // ==========================================
+        class ModelHandler {
+            constructor() {
+                this.model = null;
+                this.subModel = null; 
+                this.type = null;
+                this.name = "None";
+                this.isLayersModel = false; 
+                this.featureDim = "Unknown";
+                this.selectedLayerName = null; 
+
+                this.metadata = {
+                    'mobilenet_v2': {
+                        name: "MobileNet v2",
+                        desc: "Googleが開発したモバイル端末向けの軽量モデル。Kaggle Models版。",
+                        url: "https://www.kaggle.com/models/google/mobilenet-v2"
+                    },
+                    'mobilenet_v3_large': {
+                        name: "MobileNet v3 Large",
+                        desc: "MobileNet v2の後継。NASにより最適化されたアーキテクチャ。",
+                        url: "https://www.kaggle.com/models/google/mobilenet-v3"
+                    },
+                    'resnet50_v2': {
+                        name: "ResNet50 v2",
+                        desc: "50層の深さを持つ高精度モデル。スキップ接続を採用。",
+                        url: "https://www.kaggle.com/models/google/resnet-v2"
+                    },
+                    'custom_zip': {
+                        name: "Custom Model (ZIP)",
+                        desc: "ユーザーがアップロードしたTFJSモデル (Keras v2 layers format)。Summaryから出力レイヤーを選択可能。",
+                        url: "#"
+                    }
+                };
+            }
+
+            async load(modelType, onProgress, file=null) {
+                if (this.model && this.type === modelType && modelType !== 'custom_zip') return; 
+                
+                this.reset();
+                
+                this.type = modelType;
+                this.isLayersModel = false;
+                
+                // Load models from Kaggle Models (via TFHub-compatible API)
+                if (modelType === 'mobilenet_v2') {
+                    this.name = "MobileNet v2";
+                    const url = 'https://www.kaggle.com/models/google/mobilenet-v2/TfJs/140-224-classification/3';
+                    this.model = await tf.loadGraphModel(url, { fromTFHub: true, onProgress: onProgress });
+                } 
+                else if (modelType === 'mobilenet_v3_large') {
+                    this.name = "MobileNet v3 Large";
+                    const url = 'https://www.kaggle.com/models/google/mobilenet-v3/TfJs/large-100-224-classification/1';
+                    this.model = await tf.loadGraphModel(url, { fromTFHub: true, onProgress: onProgress });
+                }
+                else if (modelType === 'resnet50_v2') {
+                    this.name = "ResNet50 v2";
+                    const url = 'https://www.kaggle.com/models/google/resnet-v2/TfJs/50-classification/2';
+                    this.model = await tf.loadGraphModel(url, { fromTFHub: true, onProgress: onProgress });
+                }
+                else if (modelType === 'custom_zip' && file) {
+                    this.name = "Custom Model (ZIP)";
+                    this.isLayersModel = true;
+                    await this.loadFromZip(file, onProgress);
+                }
+                else {
+                    throw new Error("Unknown model type or missing file");
+                }
+                
+                // Default Feature Dimension (from default output)
+                this.updateFeatureDim();
+                
+                // Update Info UI
+                this.updateInfoUI(this.metadata[modelType]);
+            }
+
+            reset() {
+                if (this.model && this.model.dispose) this.model.dispose();
+                // 重要: subModel はメインモデルと重みを共有しているため dispose() は呼ばない
+                this.model = null;
+                this.subModel = null;
+                this.selectedLayerName = null;
+            }
+
+            async loadFromZip(file, onProgress) {
+                if (!window.JSZip) throw new Error("JSZip library not loaded.");
+                const zip = new JSZip();
+                const zipContent = await zip.loadAsync(file);
+                
+                let jsonFile = null;
+                const binFiles = [];
+                
+                Object.keys(zipContent.files).forEach(name => {
+                    if (!zipContent.files[name].dir) {
+                        if (name.endsWith('model.json')) jsonFile = name;
+                        else if (name.endsWith('.bin')) binFiles.push(name);
+                    }
+                });
+                
+                if (!jsonFile) throw new Error("model.json not found in ZIP.");
+                
+                const modelJsonBlob = await zipContent.file(jsonFile).async("blob");
+                const modelJsonFile = new File([modelJsonBlob], "model.json");
+                
+                const weightFiles = [];
+                for (const binName of binFiles) {
+                    const blob = await zipContent.file(binName).async("blob");
+                    const simpleName = binName.split('/').pop();
+                    weightFiles.push(new File([blob], simpleName));
+                }
+                
+                const files = [modelJsonFile, ...weightFiles];
+                
+                if (onProgress) onProgress(0.5);
+                
+                this.model = await tf.loadLayersModel(tf.io.browserFiles(files));
+                
+                if (onProgress) onProgress(1.0);
+            }
+
+            updateFeatureDim() {
+                this.featureDim = tf.tidy(() => {
+                    const zeros = tf.zeros([1, 224, 224, 3]);
+                    let prediction;
+                    
+                    if (this.isLayersModel && this.subModel) {
+                        prediction = this.subModel.predict(zeros);
+                    } else {
+                        prediction = this.model.predict(zeros);
+                    }
+                    
+                    // Handle potentially multi-dimensional output (e.g. 7x7x1280) by counting total elements
+                    const shape = prediction.shape;
+                    // Flatten size (excluding batch)
+                    return shape.slice(1).reduce((a, b) => a * b, 1);
+                });
+                
+                document.getElementById('modelFeatureDim').innerText = this.featureDim + (this.selectedLayerName ? " (Layer Output)" : "");
+            }
+
+            selectLayer(layerName) {
+                if (!this.isLayersModel) return;
+
+                if (this.selectedLayerName === layerName) {
+                    // Deselect if same layer clicked
+                    this.selectedLayerName = null;
+                    // Just nullify subModel, DO NOT DISPOSE (shared weights)
+                    this.subModel = null;
+                } else {
+                    this.selectedLayerName = layerName;
+                    // Create sub-model
+                    const layer = this.model.getLayer(layerName);
+                    // tf.model creates a new graph container but points to existing layers (weights shared)
+                    this.subModel = tf.model({
+                        inputs: this.model.inputs,
+                        outputs: layer.output
+                    });
+                }
+                
+                this.updateFeatureDim();
+                // Refresh UI highlights
+                this.updateSummaryHighlights();
+            }
+
+            updateSummaryHighlights() {
+                const rows = document.querySelectorAll('#modelSummaryBody tr');
+                rows.forEach(row => {
+                    const layerNameDiv = row.querySelector('.layer-name');
+                    if (layerNameDiv) {
+                        const name = layerNameDiv.innerText;
+                        if (name === this.selectedLayerName) {
+                            row.classList.add('layer-row-selected');
+                        } else {
+                            row.classList.remove('layer-row-selected');
+                        }
+                    }
+                });
+            }
+
+            updateInfoUI(meta) {
+                document.getElementById('modelName').innerText = meta.name;
+                document.getElementById('modelDescription').innerHTML = meta.desc;
+                
+                const summaryBody = document.getElementById('modelSummaryBody');
+                summaryBody.innerHTML = ''; 
+                
+                const hint = document.getElementById('layerSelectionHint');
+                if (this.isLayersModel) hint.classList.remove('hidden');
+                else hint.classList.add('hidden');
+
+                let totalParams = 0;
+                let inputShapeStr = 'Unknown';
+                let outputShapeStr = 'Unknown';
+
+                if (this.model.inputs && this.model.inputs.length > 0) {
+                    inputShapeStr = JSON.stringify(this.model.inputs[0].shape);
+                }
+                if (this.model.outputs && this.model.outputs.length > 0) {
+                    outputShapeStr = JSON.stringify(this.model.outputs[0].shape);
+                }
+                
+                document.getElementById('modelInputShape').innerText = inputShapeStr;
+                document.getElementById('modelOutputShape').innerText = outputShapeStr;
+
+                if (this.isLayersModel) {
+                    // === LayersModel (Keras) ===
+                    this.model.layers.forEach(layer => {
+                        const name = layer.name;
+                        const type = layer.getClassName();
+                        let outputShape = "multiple";
+                        if (layer.outputShape) {
+                             outputShape = JSON.stringify(layer.outputShape);
+                        }
+                        const params = layer.countParams();
+                        totalParams += params;
+
+                        const row = document.createElement('tr');
+                        row.className = "border-b border-gray-700 transition-colors layer-row-clickable";
+                        
+                        // Click event for layer selection
+                        row.onclick = () => this.selectLayer(name);
+                        
+                        row.innerHTML = `
+                            <td class="py-1 pl-2">
+                                <div class="font-bold text-blue-300 layer-name">${name}</div>
+                                <div class="text-gray-500 text-[10px]">${type}</div>
+                            </td>
+                            <td class="py-1 font-mono text-xs text-gray-300">${outputShape}</td>
+                            <td class="py-1 pr-2 text-right font-mono text-xs text-gray-300">${params.toLocaleString()}</td>
+                        `;
+                        summaryBody.appendChild(row);
+                    });
+                    
+                    this.updateSummaryHighlights(); // Apply initial highlight if any
+
+                } else {
+                    // === GraphModel (SavedModel) ===
+                    let nodes = null;
+                    // Try internal executor graph
+                    if (this.model.executor) {
+                        const graph = this.model.executor._graph || this.model.executor.graph;
+                        if (graph && graph.nodes) nodes = Object.values(graph.nodes);
+                    }
+
+                    if (nodes) {
+                        const opCounts = {};
+                        nodes.forEach(node => {
+                            const op = node.op;
+                            if (op && op !== 'Const' && op !== 'Identity' && op !== 'Placeholder') {
+                                if (!opCounts[op]) opCounts[op] = 0;
+                                opCounts[op]++;
+                            }
+                        });
+
+                        const sortedOps = Object.entries(opCounts).sort((a, b) => b[1] - a[1]);
+                        
+                        if (this.model.inputs && this.model.inputs[0]) {
+                             const row = document.createElement('tr');
+                             row.className = "border-b border-gray-700 bg-gray-800";
+                             row.innerHTML = `
+                                <td class="py-1 pl-2 font-bold text-green-400">Input</td>
+                                <td class="py-1 font-mono text-xs text-gray-300" colspan="2">${JSON.stringify(this.model.inputs[0].shape)}</td>
+                            `;
+                            summaryBody.appendChild(row);
+                        }
+
+                        sortedOps.forEach(([op, count]) => {
+                            const row = document.createElement('tr');
+                            row.className = "border-b border-gray-700";
+                            row.innerHTML = `
+                                <td class="py-1 pl-2 text-blue-300">${op}</td>
+                                <td class="py-1 text-gray-500 text-xs">Op Type</td>
+                                <td class="py-1 pr-2 text-right font-mono text-gray-300">x ${count}</td>
+                            `;
+                            summaryBody.appendChild(row);
+                        });
+
+                        totalParams = "N/A (Graph)"; 
+                    } else {
+                         summaryBody.innerHTML = '<tr><td colspan="3" class="p-2 text-center text-gray-500 italic">Graph details unavailable</td></tr>';
+                    }
+                }
+
+                const totalParamText = typeof totalParams === 'number' ? totalParams.toLocaleString() : totalParams;
+                document.getElementById('totalParams').innerText = `Total params: ${totalParamText}`;
+            }
+
+            async infer(imgElement) {
+                return tf.tidy(() => {
+                    // Common preprocessing
+                    let tensor = tf.browser.fromPixels(imgElement);
+                    tensor = tf.image.resizeBilinear(tensor, [224, 224]);
+                    tensor = tensor.div(255.0);
+                    tensor = tensor.expandDims(0);
+                    
+                    let prediction;
+                    // Use subModel if a layer is selected
+                    if (this.isLayersModel && this.subModel) {
+                        prediction = this.subModel.predict(tensor);
+                    } else {
+                        prediction = this.model.predict(tensor);
+                    }
+
+                    // Auto-Flatten if output is multi-dimensional (e.g. Conv2D output)
+                    // t-SNE requires 1D array per sample
+                    if (prediction.shape.length > 2) {
+                         prediction = prediction.flatten(); 
+                    }
+                    
+                    return Array.from(prediction.dataSync());
+                });
+            }
+        }
+
+        // ==========================================
+        // Tooltip Logic
+        // ==========================================
+        const tooltipEl = document.getElementById('js-tooltip');
+        document.addEventListener('mouseover', (e) => {
+            const target = e.target.closest('.has-tooltip');
+            if (target) {
+                const title = target.getAttribute('data-tooltip-title');
+                const content = target.getAttribute('data-tooltip-content');
+                if (title || content) {
+                    tooltipEl.innerHTML = `<strong class="text-blue-300 block mb-1">${title || ''}</strong>${content || ''}`;
+                    tooltipEl.style.display = 'block';
+                }
+            }
+        });
+        document.addEventListener('mousemove', (e) => {
+            if (tooltipEl.style.display === 'block') {
+                const x = e.clientX + 15;
+                const y = e.clientY + 15;
+                const rect = tooltipEl.getBoundingClientRect();
+                const winW = window.innerWidth;
+                const winH = window.innerHeight;
+                let finalX = x;
+                let finalY = y;
+                if (x + rect.width > winW) finalX = x - rect.width - 10;
+                if (y + rect.height > winH) finalY = y - rect.height - 10;
+                tooltipEl.style.left = finalX + 'px';
+                tooltipEl.style.top = finalY + 'px';
+            }
+        });
+        document.addEventListener('mouseout', (e) => {
+            const target = e.target.closest('.has-tooltip');
+            if (target) {
+                tooltipEl.style.display = 'none';
+            }
+        });
+
+        const useFixedSeedCheckbox = document.getElementById('useFixedSeed');
+        const seedValueInput = document.getElementById('seedValue');
+        const originalMathRandom = Math.random;
+        function mulberry32(a) {
+            return function() {
+              var t = a += 0x6D2B79F5;
+              t = Math.imul(t ^ t >>> 15, t | 1);
+              t ^= t + Math.imul(t ^ t >>> 7, t | 61);
+              return ((t ^ t >>> 14) >>> 0) / 4294967296;
+            }
+        }
+        useFixedSeedCheckbox.addEventListener('change', (e) => {
+            seedValueInput.disabled = !e.target.checked;
+        });
+
+        let hideStatusTimer = null;
+        function showStatusArea() {
+            if (hideStatusTimer) {
+                clearTimeout(hideStatusTimer);
+                hideStatusTimer = null;
+            }
+            statusArea.classList.remove('hidden');
+        }
+        function hideStatusArea(delay = 0) {
+            if (hideStatusTimer) clearTimeout(hideStatusTimer);
+            if (delay > 0) {
+                hideStatusTimer = setTimeout(() => {
+                    statusArea.classList.add('hidden');
+                    hideStatusTimer = null;
+                }, delay);
+            } else {
+                statusArea.classList.add('hidden');
+            }
+        }
+        function updateProgress(percent) {
+            progressBar.style.width = `${percent}%`;
+            progressText.innerText = `${Math.round(percent)}%`;
+        }
+
+        const modelHandler = new ModelHandler();
+        let imagesData = [];
+        let currentKdeData = null; 
+        let currentSortedLabels = []; 
+        let labelColorMap = {};
+        let bokehPlot = null;
+        let bokehSource = null;
+        let circleRenderer = null;
+        let imageRenderer = null;
+        let squareRenderer = null;
+
+        const fileInput = document.getElementById('fileInput');
+        const fileCount = document.getElementById('fileCount');
+        const runBtn = document.getElementById('runBtn');
+        const statusText = document.getElementById('statusText');
+        const hoverInfo = document.getElementById('hoverInfo');
+        const plotPlaceholder = document.getElementById('plotPlaceholder');
+        const statsSection = document.getElementById('statsSection');
+        const statsTableBody = document.getElementById('statsTableBody');
+        const kdeMetricSelect = document.getElementById('kdeMetric');
+        const modelSelect = document.getElementById('modelSelect');
+        const modelNameDisplay = document.getElementById('modelNameDisplay');
+        const customModelInputArea = document.getElementById('customModelInputArea');
+        const modelZipInput = document.getElementById('modelZipInput');
+        const modelZipLabel = document.getElementById('modelZipLabel');
+
+        // Initial State
+        runBtn.disabled = true;
+        runBtn.innerText = "Waiting for Model...";
+
+        modelSelect.addEventListener('change', async (e) => {
+            const selectedType = e.target.value;
+            
+            // Reset state
+            runBtn.disabled = true;
+            
+            if (selectedType === 'custom_zip') {
+                customModelInputArea.classList.remove('hidden');
+                modelZipInput.value = '';
+                modelZipLabel.innerText = "Select ZIP...";
+                runBtn.innerText = "Waiting for Model...";
+                return;
+            } else {
+                customModelInputArea.classList.add('hidden');
+            }
+
+            runBtn.innerText = "モデル切替中...";
+            showStatusArea();
+            statusText.innerText = `Loading ${selectedType}...`;
+            updateProgress(0);
+            statusText.classList.remove('text-red-500');
+
+            try {
+                await modelHandler.load(selectedType, (fraction) => {
+                    updateProgress(fraction * 100);
+                    statusText.innerText = `Downloading Model: ${Math.round(fraction * 100)}%`;
+                });
+                
+                statusText.innerText = `Model Ready: ${modelHandler.name}`;
+                updateProgress(100);
+                
+                if (imagesData.length > 0) {
+                    runBtn.disabled = false;
+                    runBtn.innerText = "分析開始";
+                } else {
+                     runBtn.innerText = "画像を選択してください";
+                }
+                hideStatusArea(1000);
+            } catch (e) {
+                console.error(e);
+                statusText.innerText = "Model Change Error: " + e.message;
+                statusText.classList.add('text-red-500');
+                runBtn.innerText = "エラー";
+            }
+        });
+
+        modelZipInput.addEventListener('change', async (e) => {
+            const file = e.target.files[0];
+            if (!file) return;
+            modelZipLabel.innerText = file.name;
+            runBtn.innerText = "Loading ZIP...";
+            showStatusArea();
+            statusText.innerText = "Processing ZIP file...";
+            updateProgress(0);
+            try {
+                await modelHandler.load('custom_zip', (fraction) => {
+                     updateProgress(fraction * 100);
+                     statusText.innerText = "Loading Model from ZIP...";
+                }, file);
+                statusText.innerText = `Model Ready: ${modelHandler.name}`;
+                updateProgress(100);
+                if (imagesData.length > 0) { runBtn.disabled = false; runBtn.innerText = "分析開始"; }
+                else { runBtn.innerText = "画像を選択してください"; }
+                hideStatusArea(1000);
+            } catch (e) {
+                console.error(e);
+                statusText.innerText = "ZIP Load Error: " + e.message;
+                statusText.classList.add('text-red-500');
+                runBtn.innerText = "エラー";
+            }
+        });
+
+        fileInput.addEventListener('change', (e) => {
+            const files = Array.from(e.target.files).filter(f => f.type.startsWith('image/'));
+            if (files.length === 0) return;
+            imagesData = files.map(f => {
+                const parts = f.webkitRelativePath.split('/');
+                let label = "Unknown";
+                if (parts.length >= 2) label = parts[parts.length - 2];
+                return { file: f, label: label, name: f.name };
+            });
+            fileCount.innerText = `${imagesData.length} images selected`;
+            if (modelHandler.model) { runBtn.disabled = false; runBtn.innerText = "分析開始"; }
+            else { runBtn.innerText = "モデルをロードしてください"; }
+            
+            statsSection.classList.add('hidden');
+            plotPlaceholder.classList.remove('hidden');
+            document.getElementById('plotDiv').innerHTML = '';
+            Plotly.purge('kdeDiv');
+            hoverInfo.innerHTML = `<p class="text-center text-sm">プロット上の点に<br>マウスを合わせると<br>ここに画像が表示されます</p>`;
+        });
+
+        kdeMetricSelect.addEventListener('change', (e) => {
+            if (currentKdeData) renderKDE(currentKdeData, e.target.value);
+        });
+
+        runBtn.addEventListener('click', async () => {
+            if (!modelHandler.model || imagesData.length === 0) return;
+            runBtn.disabled = true;
+            fileInput.disabled = true;
+            modelSelect.disabled = true;
+            showStatusArea();
+            plotPlaceholder.classList.add('hidden');
+            statsSection.classList.add('hidden');
+            Plotly.purge('kdeDiv');
+            modelNameDisplay.innerText = modelHandler.name;
+            
+            if (useFixedSeedCheckbox.checked) {
+                const seed = parseInt(document.getElementById('seedValue').value) || 12345;
+                Math.random = mulberry32(seed);
+            } else {
+                Math.random = originalMathRandom;
+            }
+            
+            try {
+                if (typeof tsnejs === 'undefined') throw new Error("t-SNE library not loaded.");
+                await extractFeatures();
+                const clusterStats = calculateStats();
+                currentKdeData = clusterStats.kde; 
+                renderStatsTable(clusterStats.table);
+                statsSection.classList.remove('hidden');
+                renderKDE(currentKdeData, kdeMetricSelect.value);
+                await runTSNE();
+                plotResults();
+            } catch (e) {
+                console.error(e);
+                statusText.innerText = "Error: " + e;
+                statusText.classList.add('text-red-500');
+            } finally {
+                runBtn.disabled = false;
+                fileInput.disabled = false;
+                modelSelect.disabled = false;
+            }
+        });
+
+        async function extractFeatures() {
+            const total = imagesData.length;
+            for (let i = 0; i < total; i++) {
+                statusText.innerText = `Extracting features (${modelHandler.name}): ${i + 1}/${total}`;
+                updateProgress((i / total) * 40);
+                const item = imagesData[i];
+                const img = await loadImage(item.file);
+                item.imgElement = img; 
+                item.features = await modelHandler.infer(img);
+                if (i % 5 === 0) await new Promise(r => setTimeout(r, 5));
+            }
+        }
+
+        function loadImage(file) {
+            return new Promise((resolve, reject) => {
+                const reader = new FileReader();
+                reader.onload = (e) => {
+                    const img = new Image();
+                    img.src = e.target.result;
+                    img.width = 224; img.height = 224;
+                    img.onload = () => resolve(img);
+                    img.onerror = reject;
+                };
+                reader.readAsDataURL(file);
+            });
+        }
+
+        function calculateStats() {
+            statusText.innerText = "Calculating cluster statistics...";
+            updateProgress(45);
+            const groups = {};
+            imagesData.forEach(item => {
+                if (!groups[item.label]) groups[item.label] = [];
+                groups[item.label].push(item.features);
+            });
+            const results = [];
+            const kdeData = { dist: {}, cos: {} };
+            tf.tidy(() => {
+                for (const [label, features] of Object.entries(groups)) {
+                    if (features.length < 2) continue;
+                    const tensor = tf.tensor2d(features);
+                    const n = tensor.shape[0];
+                    const centroid = tensor.mean(0);
+                    const diff = tensor.sub(centroid);
+                    const squaredDiff = diff.square();
+                    const sumSquaredDiff = squaredDiff.sum(1);
+                    const distancesTensor = sumSquaredDiff.sqrt();
+                    const distancesArray = Array.from(distancesTensor.dataSync());
+                    kdeData.dist[label] = distancesArray;
+                    const meanDist = distancesTensor.mean().dataSync()[0];
+                    const maxDist = distancesTensor.max().dataSync()[0];
+                    const dispersion = tf.moments(distancesTensor).variance.sqrt().dataSync()[0];
+                    const tensorNorm = tensor.div(tensor.norm('euclidean', 1, true));
+                    const centroidNorm = centroid.div(centroid.norm());
+                    const cosSimsTensor = tensorNorm.matMul(centroidNorm.expandDims(1));
+                    const cosSimsArray = Array.from(cosSimsTensor.dataSync());
+                    kdeData.cos[label] = cosSimsArray;
+                    const meanCosSim = cosSimsTensor.mean().dataSync()[0];
+                    results.push({ label, count: n, meanDist, maxDist, dispersion, meanCosSim });
+                }
+            });
+            results.sort((a, b) => a.meanDist - b.meanDist);
+            currentSortedLabels = results.map(r => r.label);
+            return { table: results, kde: kdeData };
+        }
+
+        function renderStatsTable(results) {
+            statsTableBody.innerHTML = results.map(r => `
+                <tr class="hover:bg-gray-700 transition-colors">
+                    <td class="px-4 py-3 font-medium text-white">${r.label}</td>
+                    <td class="px-4 py-3 text-gray-300">${r.count}</td>
+                    <td class="px-4 py-3 text-right font-mono text-blue-300">${r.meanDist.toFixed(4)}</td>
+                    <td class="px-4 py-3 text-right font-mono text-gray-400">${r.maxDist.toFixed(4)}</td>
+                    <td class="px-4 py-3 text-right font-mono text-gray-400">${r.dispersion.toFixed(4)}</td>
+                    <td class="px-4 py-3 text-right font-mono text-green-300">${r.meanCosSim.toFixed(4)}</td>
+                </tr>
+            `).join('');
+        }
+
+        function renderKDE(kdeData, metricType) {
+            const traces = [];
+            const dataMap = metricType === 'dist' ? kdeData.dist : kdeData.cos;
+            const xTitle = metricType === 'dist' ? 'Dist. to Centroid' : 'Cosine Similarity';
+            for (const label of currentSortedLabels) {
+                if (dataMap[label]) {
+                    traces.push({
+                        type: 'violin',
+                        x: dataMap[label],
+                        name: label,
+                        side: 'negative',
+                        box: { visible: false }, 
+                        meanline: { visible: true },
+                        points: false,
+                        orientation: 'h',
+                        line: { width: 1 },
+                        opacity: 0.7
+                    });
+                }
+            }
+            const layout = {
+                title: { text: '', font: { size: 14, color: '#e5e7eb' } },
+                xaxis: { title: metricType === 'dist' ? 'Dist. to Centroid' : 'Cosine Similarity', showgrid: true, gridcolor: '#374151', zeroline: false },
+                yaxis: { 
+                    showgrid: false, zeroline: false, automargin: true,
+                    categoryarray: currentSortedLabels, categoryorder: 'array', autorange: 'reversed'
+                },
+                paper_bgcolor: '#1f2937', plot_bgcolor: '#1f2937',
+                font: { color: '#9ca3af', size: 11 },
+                margin: { t: 10, l: 20, r: 20, b: 40 },
+                showlegend: false, height: 400
+            };
+            Plotly.react('kdeDiv', traces, layout, { responsive: true, displayModeBar: false });
+        }
+
+        async function runTSNE() {
+            statusText.innerText = "Initializing t-SNE...";
+            updateProgress(50);
+            const vectors = imagesData.map(d => d.features);
+            const perp = parseInt(document.getElementById('perplexity').value) || 20;
+            const iter = parseInt(document.getElementById('iterations').value) || 500;
+            const opt = { perplexity: Math.min(perp, vectors.length - 1), dim: 2, epsilon: 10 };
+            const tsne = new tsnejs.tSNE(opt);
+            tsne.initDataRaw(vectors);
+            for (let k = 0; k < iter; k++) {
+                tsne.step();
+                if (k % 50 === 0) {
+                    statusText.innerText = `Running t-SNE: Iteration ${k}/${iter}`;
+                    updateProgress(50 + (k / iter) * 50);
+                    await new Promise(r => setTimeout(r, 0));
+                }
+            }
+            const solution = tsne.getSolution();
+            solution.forEach((point, i) => {
+                imagesData[i].x = point[0];
+                imagesData[i].y = point[1];
+            });
+            updateProgress(100);
+            statusText.innerText = "Analysis Complete!";
+        }
+
+        // ==========================================
+        // Bokeh Plotting Logic
+        // ==========================================
+        function plotResults() {
+            document.getElementById('plotDiv').innerHTML = ''; // Clear previous plot
+            
+            labelColorMap = {};
+            let colorIdx = 0;
+            const sortedLabels = [...new Set(imagesData.map(i => i.label))].sort();
+            sortedLabels.forEach(label => {
+                 labelColorMap[label] = COLOR_PALETTE[colorIdx % COLOR_PALETTE.length];
+                 colorIdx++;
+            });
+
+            const data = {
+                x: imagesData.map(d => d.x),
+                y: imagesData.map(d => d.y),
+                url: imagesData.map(d => d.imgElement.src),
+                label: imagesData.map(d => d.label),
+                name: imagesData.map(d => d.name),
+                color: imagesData.map(d => labelColorMap[d.label]),
+                index: imagesData.map((d, i) => i)
+            };
+
+            bokehSource = new Bokeh.ColumnDataSource({ data: data });
+
+            const tools = "pan,wheel_zoom,box_zoom,reset,save";
+            const p = Bokeh.Plotting.figure({
+                title: "t-SNE Visualization (Bokeh)",
+                tools: tools,
+                toolbar_location: "above",
+                sizing_mode: "stretch_both",
+                background_fill_color: "#1f2937",
+                border_fill_color: "#1f2937",
+                outline_line_color: "#374151",
+                title_text_color: "#e5e7eb"
+            });
+            
+            p.xaxis.major_label_text_color = "#9ca3af";
+            p.yaxis.major_label_text_color = "#9ca3af";
+            p.grid.grid_line_color = "#374151";
+
+            // Renderers
+            // 1. Square (Background for images / Border)
+            squareRenderer = p.square({ field: "x" }, { field: "y" }, {
+                source: bokehSource,
+                size: 28, // slightly larger than image
+                color: { field: "color" },
+                visible: false // hidden by default
+            });
+
+            // 2. Image URL
+            imageRenderer = p.image_url({
+                url: { field: "url" },
+                x: { field: "x" },
+                y: { field: "y" },
+                w: 24, h: 24, 
+                w_units: "screen", h_units: "screen",
+                anchor: "center",
+                source: bokehSource,
+                visible: false // hidden by default
+            });
+
+            // 3. Circle (Points mode)
+            circleRenderer = p.circle({ field: "x" }, { field: "y" }, {
+                source: bokehSource,
+                size: 8,
+                color: { field: "color" },
+                legend_field: "label",
+                visible: true // shown by default
+            });
+
+            // Hover Tool
+            const hover = new Bokeh.HoverTool({
+                renderers: [circleRenderer, squareRenderer], // Hover works on points or image background
+                tooltips: null // Custom handling via callback
+            });
+            
+            // Custom Hover Callback
+            // BokehJS inspect signal is distinct from tooltips. 
+            // We use a custom callback on the HoverTool to update our external DOM.
+            // Note: Simple JS callback on 'indices' change of source inspection is the standard way.
+            
+            bokehSource.inspect.connect((indices) => {
+                if (indices && indices.indices.length > 0) {
+                    const idx = indices.indices[0];
+                    showHoverImage(imagesData[idx]);
+                }
+            });
+            
+            p.add_tools(hover);
+            bokehPlot = p;
+
+            Bokeh.Plotting.show(p, '#plotDiv');
+            
+            // Apply initial toggle state
+            window.updateBokehPlotVisibility(plotModeToggle.checked);
+        }
+
+        // Global function to toggle visibility from UI
+        window.updateBokehPlotVisibility = function(isImageMode) {
+            if (!circleRenderer) return;
+            
+            circleRenderer.visible = !isImageMode;
+            imageRenderer.visible = isImageMode;
+            squareRenderer.visible = isImageMode;
+        }
+
+        function showHoverImage(item) {
+            hoverInfo.innerHTML = `
+                <div class="animate-fade-in w-full h-full flex flex-col items-center justify-center">
+                    <img src="${item.imgElement.src}" class="max-w-full max-h-[300px] rounded border-2 border-blue-500 mb-4 object-contain">
+                    <div class="w-full text-left bg-gray-700 p-4 rounded shadow-lg">
+                        <p class="font-bold text-white mb-2 border-b border-gray-600 pb-1">Label: <span class="text-blue-300 text-lg ml-2">${item.label}</span></p>
+                        <p class="text-gray-300 text-sm truncate" title="${item.name}">File: ${item.name}</p>
+                        <div class="mt-2 grid grid-cols-2 gap-2 text-xs text-gray-400">
+                            <div>Coord: (${item.x.toFixed(1)}, ${item.y.toFixed(1)})</div>
+                        </div>
+                    </div>
+                </div>
+            `;
+        }
+    </script>
+</body>
+</html>
