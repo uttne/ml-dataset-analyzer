@@ -225,6 +225,16 @@
         let modelHandler = null;
         let imagesData = []; // { file, label, name, features, x, y, z? }
         let isRunning = false;
+        
+        // Global state for sorting and colors to ensure consistency
+        let sortedLabels = [];
+        let labelColors = {};
+
+        // Plotly Default Color Palette (D3)
+        const COLOR_PALETTE = [
+            '#1f77b4', '#ff7f0e', '#2ca02c', '#d62728', '#9467bd', 
+            '#8c564b', '#e377c2', '#7f7f7f', '#bcbd22', '#17becf'
+        ];
 
         // --- DOM Elements ---
         const fileInput = document.getElementById('fileInput');
@@ -288,7 +298,7 @@
                         await this.loadZip(file);
                     } else if (urls[type]) {
                         this.model = await tf.loadGraphModel(urls[type], { fromTFHub: true });
-                        this.renderSummary(false); // Graph models don't have easy layer access
+                        this.renderSummary(false); 
                     }
                     return true;
                 } catch (e) {
@@ -301,9 +311,6 @@
             async loadZip(file) {
                 const zip = new JSZip();
                 const zipContent = await zip.loadAsync(file);
-                const files = {};
-                
-                // Find model.json and bins
                 let jsonName = Object.keys(zipContent.files).find(n => n.endsWith('model.json'));
                 if (!jsonName) throw new Error("model.json not found in zip");
                 
@@ -363,7 +370,6 @@
                     this.subModel = tf.model({ inputs: this.model.inputs, outputs: layer.output });
                     trElement.classList.add('layer-row-selected');
                 }
-                // Update output info
                 const dim = this.getOutputDim();
                 document.getElementById('modelOutputInfo').innerText = `Feature Dim: ${dim}`;
             }
@@ -378,7 +384,6 @@
 
             dispose() {
                 if (this.model) this.model.dispose();
-                // subModel shares weights, just null it
                 this.subModel = null;
                 this.layerName = null;
             }
@@ -388,10 +393,6 @@
                     let tensor = tf.browser.fromPixels(imgElement)
                         .resizeBilinear([224, 224])
                         .toFloat();
-                    
-                    // Preprocessing (simple scaling)
-                    // Note: Real production code should match model specific preprocessing (e.g. -1 to 1 or 0 to 1)
-                    // Here we assume standard 0-1 or -1-1 depending on model, but simple /127.5 -1 is a safe bet for MobileNetV2 usually
                     tensor = tensor.div(127.5).sub(1); 
                     tensor = tensor.expandDims(0);
 
@@ -401,12 +402,9 @@
                     } else {
                         prediction = this.model.predict(tensor);
                     }
-
-                    // Flatten if needed (e.g. Conv output)
                     if (prediction.shape.length > 2) {
                         prediction = prediction.flatten();
                     }
-                    
                     return Array.from(prediction.dataSync());
                 });
             }
@@ -423,7 +421,6 @@
             
             if (files.length === 0) return;
             
-            // Sample limit for browser safety? Let's handle up to 5000 reasonably
             imagesData = files.map(f => {
                 const parts = f.webkitRelativePath.split('/');
                 const label = parts.length >= 2 ? parts[parts.length - 2] : "root";
@@ -465,7 +462,6 @@
             runBtn.innerText = "Loading Model...";
             setLoading(true, "Loading Model...", 50);
             
-            // Wait a tick to let UI update
             await new Promise(r => setTimeout(r, 50));
 
             const success = await modelHandler.load(type, file);
@@ -496,9 +492,9 @@
 
             try {
                 await processImages();
+                calculateStats(); // Moved BEFORE t-SNE to establish order and colors
                 await runTSNE();
-                renderPlot();
-                calculateStats();
+                renderPlot(); // Uses the established order and colors
                 exportBtn.disabled = false;
             } catch (e) {
                 console.error(e);
@@ -519,7 +515,6 @@
                 const img = await loadImage(item.file);
                 item.features = modelHandler.predict(img);
                 
-                // Yield to UI thread
                 if (i % 5 === 0) await new Promise(r => setTimeout(r, 0));
             }
         }
@@ -562,7 +557,6 @@
             }
 
             const solution = tsne.getSolution();
-            // Normalize coordinates for better plotting logic if needed, but raw is fine for Plotly
             solution.forEach((point, i) => {
                 imagesData[i].x = point[0];
                 imagesData[i].y = point[1];
@@ -570,12 +564,147 @@
             });
         }
 
+        // 5. Statistics (KDE / Violin)
+        // This now runs BEFORE plotting to define label order and colors
+        function calculateStats() {
+            const groups = {};
+            const allLabels = new Set();
+            
+            imagesData.forEach(item => {
+                if (!groups[item.label]) groups[item.label] = [];
+                groups[item.label].push(item.features);
+                allLabels.add(item.label);
+            });
+
+            const results = [];
+            const kdeData = { dist: {}, cos: {} };
+
+            tf.tidy(() => {
+                for (const [label, feats] of Object.entries(groups)) {
+                    // We still calculate minimal stats even for singles if possible, 
+                    // but KDE requires > 1 usually. 
+                    // Let's just handle metrics safely.
+                    if (feats.length < 1) continue;
+
+                    const tensor = tf.tensor2d(feats);
+                    const centroid = tensor.mean(0);
+                    
+                    // Euclidean Dist
+                    const diff = tensor.sub(centroid);
+                    const dists = diff.square().sum(1).sqrt();
+                    const meanDist = dists.mean().dataSync()[0];
+                    const maxDist = dists.max().dataSync()[0];
+                    // Variance needs at least 2 points, otherwise 0
+                    const dispersion = feats.length > 1 ? tf.moments(dists).variance.sqrt().dataSync()[0] : 0;
+
+                    kdeData.dist[label] = Array.from(dists.dataSync());
+                    
+                    // Cosine Sim
+                    const tNorm = tensor.div(tensor.norm('euclidean', 1, true));
+                    const cNorm = centroid.div(centroid.norm());
+                    const cos = tNorm.matMul(cNorm.expandDims(1));
+                    const cosVals = Array.from(cos.dataSync());
+                    const meanCosSim = cos.mean().dataSync()[0];
+                    kdeData.cos[label] = cosVals;
+
+                    results.push({ label, count: feats.length, meanDist, maxDist, dispersion, meanCosSim });
+                }
+            });
+
+            // Sort results by Mean Dist (Ascending) => Tighter clusters first
+            results.sort((a, b) => a.meanDist - b.meanDist);
+            
+            // Update Global State
+            sortedLabels = results.map(r => r.label);
+            
+            // Handle labels that might have been skipped (though we cover len >=1)
+            // Any labels not in results (count=0?) should be appended
+            const processedSet = new Set(sortedLabels);
+            allLabels.forEach(l => {
+                if (!processedSet.has(l)) sortedLabels.push(l);
+            });
+
+            // Assign Colors based on this specific order
+            labelColors = {};
+            sortedLabels.forEach((label, idx) => {
+                labelColors[label] = COLOR_PALETTE[idx % COLOR_PALETTE.length];
+            });
+
+            // Render Table
+            const tbody = document.getElementById('statsTableBody');
+            tbody.innerHTML = results.map((r, i) => {
+                const color = labelColors[r.label]; // Get assigned color
+                return `
+                <tr class="border-b border-gray-800 hover:bg-gray-700">
+                    <td class="p-2 font-medium text-blue-300 flex items-center gap-2">
+                        <span class="w-2 h-2 rounded-full inline-block" style="background-color: ${color};"></span>
+                        ${r.label}
+                    </td>
+                    <td class="p-2 text-right text-gray-400">${r.count}</td>
+                    <td class="p-2 text-right font-mono text-green-400">${r.meanDist.toFixed(3)}</td>
+                    <td class="p-2 text-right font-mono text-gray-400">${r.maxDist.toFixed(3)}</td>
+                    <td class="p-2 text-right font-mono text-gray-400">${r.dispersion.toFixed(3)}</td>
+                    <td class="p-2 text-right font-mono text-blue-300">${r.meanCosSim.toFixed(3)}</td>
+                </tr>
+            `}).join('');
+
+            // Render Violin
+            renderViolin(sortedLabels, kdeData, document.getElementById('kdeMetric').value);
+            
+            document.getElementById('kdeMetric').onchange = (e) => {
+                renderViolin(sortedLabels, kdeData, e.target.value);
+            };
+        }
+
+        function renderViolin(sortedLabelsList, kdeData, metric) {
+            const dataMap = metric === 'dist' ? kdeData.dist : kdeData.cos;
+            const traces = [];
+            
+            // Iterate in reverse order for Violin plot y-axis (top to bottom) logic often requires adjustment,
+            // but Plotly 'categoryorder': 'array' handles it.
+            // We will add traces in the sorted order.
+            sortedLabelsList.forEach(label => {
+                if (dataMap[label] && dataMap[label].length > 0) {
+                    traces.push({
+                        type: 'violin',
+                        x: dataMap[label],
+                        name: label,
+                        points: false,
+                        box: { visible: false },
+                        meanline: { visible: true },
+                        orientation: 'h',
+                        side: 'positive',
+                        width: 1.5,
+                        line: { width: 1, color: labelColors[label] }, // USE ASSIGNED COLOR
+                        fillcolor: labelColors[label], // USE ASSIGNED COLOR
+                        opacity: 0.6
+                    });
+                }
+            });
+
+            const layout = {
+                margin: { t: 0, l: 100, r: 20, b: 30 },
+                paper_bgcolor: 'rgba(0,0,0,0)',
+                plot_bgcolor: 'rgba(0,0,0,0)',
+                font: { color: '#9ca3af', size: 10 },
+                xaxis: { showgrid: true, gridcolor: '#374151' },
+                yaxis: { 
+                    automargin: true,
+                    categoryorder: 'array',
+                    categoryarray: sortedLabelsList.slice().reverse() // Reverse to match table top-to-bottom
+                },
+                showlegend: false,
+                height: 200
+            };
+
+            Plotly.react('kdeDiv', traces, layout, { displayModeBar: false });
+        }
+
         // 4. Plotting (Plotly)
         function renderPlot() {
             const traces = [];
             const groups = {};
             
-            // Group by label
             imagesData.forEach((item, idx) => {
                 if (!groups[item.label]) groups[item.label] = { x: [], y: [], z: [], ids: [] };
                 groups[item.label].x.push(item.x);
@@ -584,17 +713,24 @@
                 groups[item.label].ids.push(idx);
             });
 
-            Object.keys(groups).forEach(label => {
+            // Iterate using sortedLabels to ensure Legend Order matches Table Order
+            sortedLabels.forEach(label => {
+                if (!groups[label]) return; // Should not happen usually
                 const g = groups[label];
+                
                 const trace = {
                     x: g.x,
                     y: g.y,
                     mode: 'markers',
-                    type: currentDim === 3 ? 'scatter3d' : 'scattergl', // WebGL for performance
+                    type: currentDim === 3 ? 'scatter3d' : 'scattergl',
                     name: label,
                     text: g.ids.map(id => imagesData[id].name),
-                    customdata: g.ids, // Store index to retrieve image on hover
-                    marker: { size: 5, opacity: 0.8 }
+                    customdata: g.ids,
+                    marker: { 
+                        size: 5, 
+                        opacity: 0.8, 
+                        color: labelColors[label] // USE ASSIGNED COLOR
+                    }
                 };
                 if (currentDim === 3) trace.z = g.z;
                 traces.push(trace);
@@ -607,12 +743,12 @@
                 font: { color: '#9ca3af' },
                 margin: { l: 0, r: 0, b: 0, t: 30 },
                 legend: { x: 0, y: 1, font: { size: 10 }, bgcolor: 'rgba(0,0,0,0.5)' },
-                scene: { // For 3D
+                scene: { 
                     xaxis: { showgrid: true, gridcolor: '#374151', zeroline: false },
                     yaxis: { showgrid: true, gridcolor: '#374151', zeroline: false },
                     zaxis: { showgrid: true, gridcolor: '#374151', zeroline: false },
                 },
-                xaxis: { showgrid: true, gridcolor: '#374151', zeroline: false }, // For 2D
+                xaxis: { showgrid: true, gridcolor: '#374151', zeroline: false }, 
                 yaxis: { showgrid: true, gridcolor: '#374151', zeroline: false },
                 hovermode: 'closest'
             };
@@ -621,7 +757,6 @@
             
             Plotly.newPlot('plotDiv', traces, layout, config);
 
-            // Hover Event
             const plotDiv = document.getElementById('plotDiv');
             plotDiv.on('plotly_hover', (data) => {
                 const point = data.points[0];
@@ -637,107 +772,12 @@
             reader.onload = (e) => {
                 previewImg.src = e.target.result;
                 previewImg.classList.remove('opacity-50');
-                previewLabel.innerText = `${item.label}: ${item.name}`;
+                // Add color indicator to label
+                const color = labelColors[item.label] || '#fff';
+                previewLabel.innerHTML = `<span style="color:${color}">●</span> ${item.label}: ${item.name}`;
                 previewLabel.classList.remove('hidden');
             };
             reader.readAsDataURL(item.file);
-        }
-
-        // 5. Statistics (KDE / Violin)
-        function calculateStats() {
-            // ... (Same logic as original but optimized) ...
-            const groups = {};
-            imagesData.forEach(item => {
-                if (!groups[item.label]) groups[item.label] = [];
-                groups[item.label].push(item.features);
-            });
-
-            const results = [];
-            const kdeData = { dist: {}, cos: {} };
-
-            tf.tidy(() => {
-                for (const [label, feats] of Object.entries(groups)) {
-                    if (feats.length < 2) continue;
-                    const tensor = tf.tensor2d(feats);
-                    const centroid = tensor.mean(0);
-                    
-                    // Euclidean Dist
-                    const diff = tensor.sub(centroid);
-                    const dists = diff.square().sum(1).sqrt();
-                    const meanDist = dists.mean().dataSync()[0];
-                    const maxDist = dists.max().dataSync()[0];
-                    const dispersion = tf.moments(dists).variance.sqrt().dataSync()[0];
-
-                    kdeData.dist[label] = Array.from(dists.dataSync());
-                    
-                    // Cosine Sim
-                    // A . B / |A||B|
-                    const tNorm = tensor.div(tensor.norm('euclidean', 1, true));
-                    const cNorm = centroid.div(centroid.norm());
-                    const cos = tNorm.matMul(cNorm.expandDims(1));
-                    const cosVals = Array.from(cos.dataSync());
-                    const meanCosSim = cos.mean().dataSync()[0];
-                    kdeData.cos[label] = cosVals;
-
-                    results.push({ label, count: feats.length, meanDist, maxDist, dispersion, meanCosSim });
-                }
-            });
-
-            // Render Table
-            results.sort((a, b) => a.meanDist - b.meanDist);
-            const tbody = document.getElementById('statsTableBody');
-            tbody.innerHTML = results.map(r => `
-                <tr class="border-b border-gray-800 hover:bg-gray-700">
-                    <td class="p-2 font-medium text-blue-300">${r.label}</td>
-                    <td class="p-2 text-right text-gray-400">${r.count}</td>
-                    <td class="p-2 text-right font-mono text-green-400">${r.meanDist.toFixed(3)}</td>
-                    <td class="p-2 text-right font-mono text-gray-400">${r.maxDist.toFixed(3)}</td>
-                    <td class="p-2 text-right font-mono text-gray-400">${r.dispersion.toFixed(3)}</td>
-                    <td class="p-2 text-right font-mono text-blue-300">${r.meanCosSim.toFixed(3)}</td>
-                </tr>
-            `).join('');
-
-            // Render Violin
-            renderViolin(results.map(r => r.label), kdeData, document.getElementById('kdeMetric').value);
-            
-            document.getElementById('kdeMetric').onchange = (e) => {
-                renderViolin(results.map(r => r.label), kdeData, e.target.value);
-            };
-        }
-
-        function renderViolin(sortedLabels, kdeData, metric) {
-            const dataMap = metric === 'dist' ? kdeData.dist : kdeData.cos;
-            const traces = [];
-            
-            sortedLabels.forEach(label => {
-                if (dataMap[label]) {
-                    traces.push({
-                        type: 'violin',
-                        x: dataMap[label],
-                        name: label,
-                        points: false,
-                        box: { visible: false },
-                        meanline: { visible: true },
-                        orientation: 'h',
-                        side: 'positive',
-                        width: 1.5,
-                        line: { width: 1 }
-                    });
-                }
-            });
-
-            const layout = {
-                margin: { t: 0, l: 100, r: 20, b: 30 },
-                paper_bgcolor: 'rgba(0,0,0,0)',
-                plot_bgcolor: 'rgba(0,0,0,0)',
-                font: { color: '#9ca3af', size: 10 },
-                xaxis: { showgrid: true, gridcolor: '#374151' },
-                yaxis: { automargin: true },
-                showlegend: false,
-                height: 200
-            };
-
-            Plotly.react('kdeDiv', traces, layout, { displayModeBar: false });
         }
 
         // 6. Export
