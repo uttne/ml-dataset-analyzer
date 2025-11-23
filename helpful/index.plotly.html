@@ -1,0 +1,857 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Dataset Analyzer Pro (TF.js + Plotly)</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    
+    <!-- TensorFlow.js (v4.22.0) -->
+    <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@4.22.0/dist/tf.min.js"></script>
+    
+    <!-- JSZip for unzipping model files -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
+
+    <!-- t-SNE implementation -->
+    <script src="https://cdn.jsdelivr.net/gh/karpathy/tsnejs@master/tsne.js"></script>
+    
+    <!-- Plotly.js (WebGL support for performance) -->
+    <script src="https://cdn.plot.ly/plotly-2.27.0.min.js"></script>
+    
+    <style>
+        @keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
+        .animate-fade-in { animation: fadeIn 0.3s ease-in-out; }
+        
+        /* Custom Scrollbar */
+        ::-webkit-scrollbar { width: 8px; height: 8px; }
+        ::-webkit-scrollbar-track { background: #1f2937; }
+        ::-webkit-scrollbar-thumb { background: #4b5563; border-radius: 4px; }
+        ::-webkit-scrollbar-thumb:hover { background: #6b7280; }
+        
+        .layer-row-selected {
+            background-color: #1e40af !important;
+            border-left: 4px solid #3b82f6;
+        }
+        .layer-row-clickable:hover {
+            background-color: #374151;
+            cursor: pointer;
+        }
+    </style>
+</head>
+<body class="bg-gray-900 text-white h-screen font-sans flex flex-col overflow-hidden">
+
+    <!-- Header -->
+    <header class="bg-gray-800 border-b border-gray-700 px-6 py-3 flex justify-between items-center shadow-md z-20 flex-shrink-0">
+        <div>
+            <h1 class="text-xl font-bold text-blue-400 flex items-center gap-2">
+                <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19.428 15.428a2 2 0 00-1.022-.547l-2.384-.477a6 6 0 00-3.86.517l-.318.158a6 6 0 01-3.86.517L6.05 15.21a2 2 0 00-1.806.547M8 4h8l-1 1v5.172a2 2 0 00.586 1.414l5 5c1.26 1.26.367 3.414-1.415 3.414H4.828c-1.782 0-2.674-2.154-1.414-3.414l5-5A2 2 0 009 10.172V5L8 4z"></path></svg>
+                Dataset Analyzer <span class="text-xs text-green-400 border border-green-400 rounded px-1 ml-1">Pro</span>
+            </h1>
+        </div>
+        <div class="flex items-center gap-3">
+            <button id="exportBtn" disabled class="bg-gray-700 hover:bg-gray-600 text-white text-xs px-3 py-1.5 rounded transition disabled:opacity-50 flex items-center gap-1">
+                <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"></path></svg>
+                Export CSV
+            </button>
+        </div>
+    </header>
+
+    <div class="flex flex-grow overflow-hidden h-full">
+        
+        <!-- Left Sidebar: Controls & Info -->
+        <aside class="w-80 bg-gray-800 border-r border-gray-700 flex flex-col z-10 shadow-xl flex-shrink-0 h-full overflow-hidden">
+            <!-- Top Controls (Scrollable if needed, but fixed height logic) -->
+            <div class="p-4 space-y-6 flex-shrink-0 overflow-y-auto max-h-[60vh]">
+                
+                <!-- 1. Data Input -->
+                <div class="space-y-2">
+                    <label class="text-xs font-bold text-gray-400 uppercase tracking-wider">1. Dataset</label>
+                    <div class="flex items-center gap-2">
+                        <label class="flex-grow cursor-pointer bg-blue-600 hover:bg-blue-700 text-white py-2 px-3 rounded text-sm text-center shadow transition">
+                            <span>Select Folder</span>
+                            <input type="file" id="fileInput" webkitdirectory directory multiple class="hidden" accept="image/*">
+                        </label>
+                        <span id="fileCount" class="text-xs text-gray-400 whitespace-nowrap">0 files</span>
+                    </div>
+                    <p class="text-[10px] text-gray-500">Subfolder names will be used as labels.</p>
+                </div>
+
+                <!-- 2. Model Settings -->
+                <div class="space-y-3 border-t border-gray-700 pt-4">
+                    <label class="text-xs font-bold text-gray-400 uppercase tracking-wider">2. Model & Params</label>
+                    
+                    <select id="modelSelect" class="w-full bg-gray-700 border border-gray-600 rounded px-2 py-1.5 text-xs text-white focus:ring-1 focus:ring-blue-500 outline-none">
+                        <option value="mobilenet_v2_100">MobileNet v2 (Fast)</option>
+                        <option value="mobilenet_v3_large">MobileNet v3 Large</option>
+                        <option value="resnet50_v2">ResNet50 v2 (Accurate)</option>
+                        <option value="custom_zip" selected>Custom Model (.zip)</option>
+                    </select>
+
+                    <!-- Custom Model Input -->
+                    <div id="customModelInputArea" class="w-full">
+                        <label class="cursor-pointer bg-gray-700 hover:bg-gray-600 border border-gray-500 border-dashed text-gray-300 py-2 px-2 rounded text-xs flex items-center justify-center transition">
+                            <span id="modelZipLabel" class="truncate">Select .zip (json+bin)</span>
+                            <input type="file" id="modelZipInput" class="hidden" accept=".zip">
+                        </label>
+                    </div>
+
+                    <div class="grid grid-cols-2 gap-2">
+                        <div>
+                            <label class="text-[10px] text-gray-400 block mb-1">Perplexity</label>
+                            <input type="number" id="perplexity" value="20" class="w-full bg-gray-900 border border-gray-600 rounded px-2 py-1 text-xs">
+                        </div>
+                        <div>
+                            <label class="text-[10px] text-gray-400 block mb-1">Iterations</label>
+                            <input type="number" id="iterations" value="400" class="w-full bg-gray-900 border border-gray-600 rounded px-2 py-1 text-xs">
+                        </div>
+                    </div>
+
+                    <div class="flex items-center justify-between border-t border-gray-700 pt-3 mt-1">
+                         <label class="text-[10px] text-gray-400">Dimensions:</label>
+                         <div class="flex bg-gray-900 rounded p-0.5 border border-gray-600">
+                             <button class="dim-btn px-2 py-0.5 text-xs rounded bg-blue-600 text-white" data-dim="2">2D</button>
+                             <button class="dim-btn px-2 py-0.5 text-xs rounded text-gray-400 hover:text-white" data-dim="3">3D</button>
+                         </div>
+                    </div>
+
+                    <!-- Image Toggle -->
+                    <div class="flex items-center justify-between">
+                        <span class="text-[10px] text-gray-400">Show Images (2D only):</span>
+                        <label class="relative inline-flex items-center cursor-pointer">
+                            <input type="checkbox" id="showImagesToggle" class="sr-only peer">
+                            <div class="w-8 h-4 bg-gray-700 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-3 after:w-3 after:transition-all peer-checked:bg-blue-600"></div>
+                        </label>
+                    </div>
+
+                    <button id="runBtn" disabled class="w-full bg-green-600 hover:bg-green-700 disabled:bg-gray-600 disabled:cursor-not-allowed text-white py-2 rounded shadow font-bold text-sm transition mt-2">
+                        Load Model First
+                    </button>
+                </div>
+            </div>
+
+            <!-- Model Summary (Independent Scroll Area) -->
+            <div class="flex-grow flex flex-col border-t border-gray-700 min-h-0 bg-gray-850">
+                <div class="flex justify-between items-center px-4 py-2 flex-shrink-0 bg-gray-800">
+                    <span class="text-xs font-bold text-gray-400 uppercase">Layers</span>
+                    <span class="text-[10px] text-yellow-500" id="layerHint">Click row to set output</span>
+                </div>
+                <!-- This container scrolls independently -->
+                <div class="flex-grow overflow-y-auto bg-gray-900 scrollbar-thin">
+                    <table class="w-full text-[10px] text-left text-gray-300">
+                        <tbody id="modelSummaryBody" class="divide-y divide-gray-800">
+                            <tr><td class="p-2 text-center text-gray-500 italic">No model loaded</td></tr>
+                        </tbody>
+                    </table>
+                </div>
+                <div class="px-4 py-1 text-[10px] text-right text-gray-500 bg-gray-800 border-t border-gray-700 flex-shrink-0" id="modelOutputInfo">
+                    Feature Dim: -
+                </div>
+            </div>
+        </aside>
+
+        <!-- Main Content Area -->
+        <main class="flex-grow flex flex-col h-full relative bg-[#111827] overflow-hidden">
+            
+            <!-- Progress Overlay -->
+            <div id="loadingOverlay" class="absolute inset-0 bg-gray-900 bg-opacity-90 z-50 flex flex-col items-center justify-center hidden backdrop-blur-sm">
+                <div class="w-64">
+                    <div class="flex justify-between mb-1">
+                        <span id="loadingText" class="text-sm font-mono text-blue-400">Processing...</span>
+                        <span id="loadingPercent" class="text-sm font-mono text-white">0%</span>
+                    </div>
+                    <div class="w-full bg-gray-700 rounded-full h-2.5">
+                        <div id="loadingBar" class="bg-blue-500 h-2.5 rounded-full transition-all duration-100" style="width: 0%"></div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Plot Area -->
+            <div id="plotContainer" class="flex-grow relative w-full h-full min-h-0">
+                <div id="plotDiv" class="w-full h-full"></div>
+                <div id="emptyState" class="absolute inset-0 flex items-center justify-center text-gray-600 pointer-events-none">
+                    <div class="text-center">
+                        <svg class="w-20 h-20 mx-auto mb-4 opacity-20" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M7 12l3-3 3 3 4-4M8 21l4-4 4 4M3 4h18M4 4h16v12a1 1 0 01-1 1H5a1 1 0 01-1-1V4z"></path></svg>
+                        <p class="text-lg font-semibold">Ready to Analyze</p>
+                        <p class="text-sm">Select images and run analysis to see the plot.</p>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Bottom Panel: Stats & Preview -->
+            <div class="h-64 bg-gray-800 border-t border-gray-700 flex flex-row overflow-hidden flex-shrink-0">
+                
+                <!-- Image Preview -->
+                <div class="w-64 border-r border-gray-700 p-4 flex flex-col flex-shrink-0 bg-gray-850">
+                    <h3 class="text-xs font-bold text-gray-400 uppercase mb-2">Preview</h3>
+                    <div class="flex-grow flex items-center justify-center bg-gray-900 border border-gray-700 rounded overflow-hidden relative group">
+                        <img id="previewImg" class="max-w-full max-h-full object-contain opacity-50" src="data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCAyNCAyNCIgZmlsbD0ibm9uZSIgc3Ryb2tlPSIjNGI1NTYzIiBzdHJva2Utd2lkdGg9IjEiPjxwYXRoIGQ9Ik00IDRoMTZ2MTJhMSAxIDAgMDEtMSAxSDVhMSAxIDAgMDEtMS0xVjR6Ii8+PC9zdmc+">
+                        <div id="previewLabel" class="absolute bottom-0 left-0 right-0 bg-black bg-opacity-75 text-white text-[10px] p-1 text-center truncate hidden">
+                            Label
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Stats Panel -->
+                <div class="flex-grow flex flex-col p-4 overflow-hidden">
+                    <div class="flex justify-between items-center mb-2">
+                        <h3 class="text-xs font-bold text-gray-400 uppercase">Cluster Statistics</h3>
+                        <div class="flex gap-2">
+                            <select id="kdeMetric" class="bg-gray-700 text-white text-[10px] border border-gray-600 rounded px-1">
+                                <option value="dist">Distance to Centroid</option>
+                                <option value="cos">Cosine Similarity</option>
+                            </select>
+                        </div>
+                    </div>
+                    
+                    <div class="flex-grow flex gap-4 overflow-hidden">
+                        <!-- Table -->
+                        <div class="w-2/5 overflow-y-auto border border-gray-700 rounded bg-gray-900">
+                            <table class="w-full text-[10px] text-left text-gray-300">
+                                <thead class="bg-gray-800 sticky top-0 text-gray-400">
+                                    <tr>
+                                        <th class="p-2">Class</th>
+                                        <th class="p-2 text-right">Count</th>
+                                        <th class="p-2 text-right whitespace-nowrap" title="Mean Distance to Centroid">Mean Dist.</th>
+                                        <th class="p-2 text-right whitespace-nowrap" title="Maximum Distance to Centroid">Max Dist.</th>
+                                        <th class="p-2 text-right whitespace-nowrap" title="Standard Deviation of Distance">Dispersion</th>
+                                        <th class="p-2 text-right whitespace-nowrap" title="Mean Cosine Similarity">Cos Sim.</th>
+                                    </tr>
+                                </thead>
+                                <tbody id="statsTableBody" class="divide-y divide-gray-800"></tbody>
+                            </table>
+                        </div>
+                        <!-- Violin Plot -->
+                        <div id="kdeDiv" class="w-3/5 bg-gray-900 border border-gray-700 rounded relative"></div>
+                    </div>
+                </div>
+            </div>
+        </main>
+    </div>
+
+    <script>
+        // --- Configuration & State ---
+        let currentDim = 2;
+        let modelHandler = null;
+        let imagesData = []; // { file, label, name, features, x, y, z?, imgUrl? }
+        let isRunning = false;
+        
+        // Global state for sorting and colors to ensure consistency
+        let sortedLabels = [];
+        let labelColors = {};
+
+        // Plotly Default Color Palette (D3)
+        const COLOR_PALETTE = [
+            '#1f77b4', '#ff7f0e', '#2ca02c', '#d62728', '#9467bd', 
+            '#8c564b', '#e377c2', '#7f7f7f', '#bcbd22', '#17becf'
+        ];
+
+        // --- DOM Elements ---
+        const fileInput = document.getElementById('fileInput');
+        const fileCount = document.getElementById('fileCount');
+        const runBtn = document.getElementById('runBtn');
+        const exportBtn = document.getElementById('exportBtn');
+        const loadingOverlay = document.getElementById('loadingOverlay');
+        const loadingText = document.getElementById('loadingText');
+        const loadingBar = document.getElementById('loadingBar');
+        const loadingPercent = document.getElementById('loadingPercent');
+        const previewImg = document.getElementById('previewImg');
+        const previewLabel = document.getElementById('previewLabel');
+        const dimBtns = document.querySelectorAll('.dim-btn');
+        const showImagesToggle = document.getElementById('showImagesToggle');
+        
+        // --- UI Helpers ---
+        function setLoading(active, text="Processing...", percent=0) {
+            if (active) {
+                loadingOverlay.classList.remove('hidden');
+                loadingText.innerText = text;
+                loadingBar.style.width = `${percent}%`;
+                loadingPercent.innerText = `${Math.round(percent)}%`;
+            } else {
+                loadingOverlay.classList.add('hidden');
+            }
+        }
+
+        dimBtns.forEach(btn => {
+            btn.addEventListener('click', () => {
+                dimBtns.forEach(b => {
+                    b.classList.remove('bg-blue-600', 'text-white');
+                    b.classList.add('text-gray-400');
+                });
+                btn.classList.remove('text-gray-400');
+                btn.classList.add('bg-blue-600', 'text-white');
+                currentDim = parseInt(btn.dataset.dim);
+                renderPlot(); // Re-render on dim change (note: z coord must exist)
+            });
+        });
+
+        showImagesToggle.addEventListener('change', () => {
+             renderPlot();
+        });
+
+        // --- Model Handler Logic ---
+        class ModelHandler {
+            constructor() {
+                this.model = null;
+                this.subModel = null;
+                this.type = 'custom_zip';
+                this.layerName = null;
+            }
+
+            async load(type, file=null) {
+                this.dispose();
+                this.type = type;
+                
+                // TFHub / Kaggle Models URLs
+                const urls = {
+                    'mobilenet_v2_100': 'https://tfhub.dev/google/tfjs-model/imagenet/mobilenet_v2_100_224/feature_vector/4/default/1',
+                    'mobilenet_v3_large': 'https://www.kaggle.com/models/google/mobilenet-v3/TfJs/large-100-224-feature-vector/1',
+                    'resnet50_v2': 'https://www.kaggle.com/models/google/resnet-v2/TfJs/50-feature-vector/2'
+                };
+
+                try {
+                    if (type === 'custom_zip' && file) {
+                        await this.loadZip(file);
+                    } else if (urls[type]) {
+                        this.model = await tf.loadGraphModel(urls[type], { fromTFHub: true });
+                        this.renderSummary(false); 
+                    }
+                    return true;
+                } catch (e) {
+                    console.error(e);
+                    alert("Model load failed: " + e.message);
+                    return false;
+                }
+            }
+
+            async loadZip(file) {
+                const zip = new JSZip();
+                const zipContent = await zip.loadAsync(file);
+                let jsonName = Object.keys(zipContent.files).find(n => n.endsWith('model.json'));
+                if (!jsonName) throw new Error("model.json not found in zip");
+                
+                const jsonBlob = await zipContent.file(jsonName).async("blob");
+                const jsonFile = new File([jsonBlob], "model.json");
+                
+                const weights = [];
+                for (let name of Object.keys(zipContent.files)) {
+                    if (name.endsWith('.bin')) {
+                        const blob = await zipContent.file(name).async("blob");
+                        weights.push(new File([blob], name.split('/').pop()));
+                    }
+                }
+                
+                this.model = await tf.loadLayersModel(tf.io.browserFiles([jsonFile, ...weights]));
+                this.renderSummary(true);
+            }
+
+            renderSummary(isLayers) {
+                const tbody = document.getElementById('modelSummaryBody');
+                tbody.innerHTML = '';
+                document.getElementById('layerHint').style.display = isLayers ? 'block' : 'none';
+
+                if (!isLayers) {
+                    tbody.innerHTML = `<tr><td class="p-2 text-gray-400 text-xs">GraphModel loaded.<br>Internal layers hidden.<br>Output: Feature Vector</td></tr>`;
+                    return;
+                }
+
+                this.model.layers.forEach(layer => {
+                    const tr = document.createElement('tr');
+                    tr.className = 'border-b border-gray-800 hover:bg-gray-800 layer-row-clickable transition-colors';
+                    tr.innerHTML = `
+                        <td class="p-2">
+                            <div class="font-bold text-blue-300 truncate w-32" title="${layer.name}">${layer.name}</div>
+                            <div class="text-gray-500 text-[9px]">${layer.getClassName()}</div>
+                        </td>
+                        <td class="p-2 text-right font-mono text-gray-400 text-[9px]">
+                            ${layer.outputShape ? JSON.stringify(layer.outputShape).replace(/null/g, '?') : 'N/A'}
+                        </td>
+                    `;
+                    tr.onclick = () => {
+                        this.selectLayer(layer.name, tr);
+                    };
+                    tbody.appendChild(tr);
+                });
+            }
+
+            selectLayer(name, trElement) {
+                if (this.layerName === name) {
+                    this.layerName = null;
+                    this.subModel = null;
+                    trElement.classList.remove('layer-row-selected');
+                } else {
+                    document.querySelectorAll('.layer-row-selected').forEach(el => el.classList.remove('layer-row-selected'));
+                    this.layerName = name;
+                    const layer = this.model.getLayer(name);
+                    this.subModel = tf.model({ inputs: this.model.inputs, outputs: layer.output });
+                    trElement.classList.add('layer-row-selected');
+                }
+                const dim = this.getOutputDim();
+                document.getElementById('modelOutputInfo').innerText = `Feature Dim: ${dim}`;
+            }
+
+            getOutputDim() {
+                return tf.tidy(() => {
+                    const dummy = tf.zeros([1, 224, 224, 3]);
+                    const out = this.subModel ? this.subModel.predict(dummy) : this.model.predict(dummy);
+                    return out.size;
+                });
+            }
+
+            dispose() {
+                if (this.model) this.model.dispose();
+                this.subModel = null;
+                this.layerName = null;
+            }
+
+            predict(imgElement) {
+                return tf.tidy(() => {
+                    let tensor = tf.browser.fromPixels(imgElement)
+                        .resizeBilinear([224, 224])
+                        .toFloat();
+                    tensor = tensor.div(127.5).sub(1); 
+                    tensor = tensor.expandDims(0);
+
+                    let prediction;
+                    if (this.subModel) {
+                        prediction = this.subModel.predict(tensor);
+                    } else {
+                        prediction = this.model.predict(tensor);
+                    }
+                    if (prediction.shape.length > 2) {
+                        prediction = prediction.flatten();
+                    }
+                    return Array.from(prediction.dataSync());
+                });
+            }
+        }
+
+        modelHandler = new ModelHandler();
+
+        // --- Main Logic ---
+        
+        // 1. File Selection
+        fileInput.addEventListener('change', (e) => {
+            // Revoke old URLs to prevent memory leak
+            imagesData.forEach(d => { if(d.imgUrl) URL.revokeObjectURL(d.imgUrl); });
+            imagesData = [];
+            
+            const files = Array.from(e.target.files).filter(f => f.type.startsWith('image/'));
+            
+            if (files.length === 0) return;
+            
+            imagesData = files.map(f => {
+                const parts = f.webkitRelativePath.split('/');
+                const label = parts.length >= 2 ? parts[parts.length - 2] : "root";
+                return { file: f, label: label, name: f.name, features: null };
+            });
+
+            fileCount.innerText = `${imagesData.length} images`;
+            document.getElementById('emptyState').style.display = 'flex';
+            Plotly.purge('plotDiv');
+            checkReady();
+        });
+
+        // 2. Model Selection
+        const modelSelect = document.getElementById('modelSelect');
+        const customInput = document.getElementById('customModelInputArea');
+        const modelZipInput = document.getElementById('modelZipInput');
+        const modelZipLabel = document.getElementById('modelZipLabel');
+
+        modelSelect.addEventListener('change', (e) => {
+            if (e.target.value === 'custom_zip') {
+                customInput.classList.remove('hidden');
+                runBtn.innerText = "Load Custom Model First";
+                runBtn.disabled = true;
+            } else {
+                customInput.classList.add('hidden');
+                loadModel(e.target.value);
+            }
+        });
+
+        modelZipInput.addEventListener('change', (e) => {
+            if (e.target.files[0]) {
+                modelZipLabel.innerText = e.target.files[0].name;
+                loadModel('custom_zip', e.target.files[0]);
+            }
+        });
+
+        async function loadModel(type, file=null) {
+            runBtn.disabled = true;
+            runBtn.innerText = "Loading Model...";
+            setLoading(true, "Loading Model...", 50);
+            
+            await new Promise(r => setTimeout(r, 50));
+
+            const success = await modelHandler.load(type, file);
+            setLoading(false);
+
+            if (success) {
+                runBtn.innerText = "Run Analysis";
+                checkReady();
+            } else {
+                runBtn.innerText = "Load Failed";
+            }
+        }
+
+        function checkReady() {
+            if (modelHandler.model && imagesData.length > 0) {
+                runBtn.disabled = false;
+                runBtn.classList.remove('bg-gray-600');
+                runBtn.classList.add('bg-green-600');
+            }
+        }
+
+        // 3. Run Analysis
+        runBtn.addEventListener('click', async () => {
+            if (isRunning) return;
+            isRunning = true;
+            runBtn.disabled = true;
+            document.getElementById('emptyState').style.display = 'none';
+
+            try {
+                await processImages();
+                calculateStats(); // Moved BEFORE t-SNE to establish order and colors
+                await runTSNE();
+                renderPlot(); // Uses the established order and colors
+                exportBtn.disabled = false;
+            } catch (e) {
+                console.error(e);
+                alert("Error during analysis: " + e.message);
+            } finally {
+                isRunning = false;
+                runBtn.disabled = false;
+                setLoading(false);
+            }
+        });
+
+        async function processImages() {
+            const total = imagesData.length;
+            for (let i = 0; i < total; i++) {
+                const item = imagesData[i];
+                setLoading(true, `Extracting Features (${i+1}/${total})`, (i/total)*100);
+                
+                // Create Object URL for Plotly Image Layer
+                if (!item.imgUrl) {
+                    item.imgUrl = URL.createObjectURL(item.file);
+                }
+
+                const img = await loadImage(item.file);
+                item.features = modelHandler.predict(img);
+                
+                if (i % 5 === 0) await new Promise(r => setTimeout(r, 0));
+            }
+        }
+
+        function loadImage(file) {
+            return new Promise((resolve, reject) => {
+                const reader = new FileReader();
+                reader.onload = (e) => {
+                    const img = new Image();
+                    img.src = e.target.result;
+                    img.onload = () => resolve(img);
+                    img.onerror = reject;
+                };
+                reader.readAsDataURL(file);
+            });
+        }
+
+        async function runTSNE() {
+            setLoading(true, "Initializing t-SNE...", 0);
+            
+            const features = imagesData.map(d => d.features);
+            const perplexity = parseInt(document.getElementById('perplexity').value) || 20;
+            const iterations = parseInt(document.getElementById('iterations').value) || 400;
+            
+            const opt = {
+                perplexity: Math.min(perplexity, features.length - 1),
+                dim: currentDim,
+                epsilon: 10
+            };
+
+            const tsne = new tsnejs.tSNE(opt);
+            tsne.initDataRaw(features);
+
+            for (let k = 0; k < iterations; k++) {
+                tsne.step();
+                if (k % 20 === 0) {
+                    setLoading(true, `Running t-SNE (${k}/${iterations})`, (k/iterations)*100);
+                    await new Promise(r => setTimeout(r, 0));
+                }
+            }
+
+            const solution = tsne.getSolution();
+            solution.forEach((point, i) => {
+                imagesData[i].x = point[0];
+                imagesData[i].y = point[1];
+                if (currentDim === 3) imagesData[i].z = point[2];
+            });
+        }
+
+        // 5. Statistics (KDE / Violin)
+        // This now runs BEFORE plotting to define label order and colors
+        function calculateStats() {
+            const groups = {};
+            const allLabels = new Set();
+            
+            imagesData.forEach(item => {
+                if (!groups[item.label]) groups[item.label] = [];
+                groups[item.label].push(item.features);
+                allLabels.add(item.label);
+            });
+
+            const results = [];
+            const kdeData = { dist: {}, cos: {} };
+
+            tf.tidy(() => {
+                for (const [label, feats] of Object.entries(groups)) {
+                    if (feats.length < 1) continue;
+
+                    const tensor = tf.tensor2d(feats);
+                    const centroid = tensor.mean(0);
+                    
+                    // Euclidean Dist
+                    const diff = tensor.sub(centroid);
+                    const dists = diff.square().sum(1).sqrt();
+                    const meanDist = dists.mean().dataSync()[0];
+                    const maxDist = dists.max().dataSync()[0];
+                    const dispersion = feats.length > 1 ? tf.moments(dists).variance.sqrt().dataSync()[0] : 0;
+
+                    kdeData.dist[label] = Array.from(dists.dataSync());
+                    
+                    // Cosine Sim
+                    const tNorm = tensor.div(tensor.norm('euclidean', 1, true));
+                    const cNorm = centroid.div(centroid.norm());
+                    const cos = tNorm.matMul(cNorm.expandDims(1));
+                    const cosVals = Array.from(cos.dataSync());
+                    const meanCosSim = cos.mean().dataSync()[0];
+                    kdeData.cos[label] = cosVals;
+
+                    results.push({ label, count: feats.length, meanDist, maxDist, dispersion, meanCosSim });
+                }
+            });
+
+            // Sort results by Mean Dist (Ascending) => Tighter clusters first
+            results.sort((a, b) => a.meanDist - b.meanDist);
+            
+            // Update Global State
+            sortedLabels = results.map(r => r.label);
+            
+            const processedSet = new Set(sortedLabels);
+            allLabels.forEach(l => {
+                if (!processedSet.has(l)) sortedLabels.push(l);
+            });
+
+            // Assign Colors based on this specific order
+            labelColors = {};
+            sortedLabels.forEach((label, idx) => {
+                labelColors[label] = COLOR_PALETTE[idx % COLOR_PALETTE.length];
+            });
+
+            // Render Table
+            const tbody = document.getElementById('statsTableBody');
+            tbody.innerHTML = results.map((r, i) => {
+                const color = labelColors[r.label]; // Get assigned color
+                return `
+                <tr class="border-b border-gray-800 hover:bg-gray-700">
+                    <td class="p-2 font-medium text-blue-300 flex items-center gap-2">
+                        <span class="w-2 h-2 rounded-full inline-block" style="background-color: ${color};"></span>
+                        ${r.label}
+                    </td>
+                    <td class="p-2 text-right text-gray-400">${r.count}</td>
+                    <td class="p-2 text-right font-mono text-green-400">${r.meanDist.toFixed(3)}</td>
+                    <td class="p-2 text-right font-mono text-gray-400">${r.maxDist.toFixed(3)}</td>
+                    <td class="p-2 text-right font-mono text-gray-400">${r.dispersion.toFixed(3)}</td>
+                    <td class="p-2 text-right font-mono text-blue-300">${r.meanCosSim.toFixed(3)}</td>
+                </tr>
+            `}).join('');
+
+            // Render Violin
+            renderViolin(sortedLabels, kdeData, document.getElementById('kdeMetric').value);
+            
+            document.getElementById('kdeMetric').onchange = (e) => {
+                renderViolin(sortedLabels, kdeData, e.target.value);
+            };
+        }
+
+        function renderViolin(sortedLabelsList, kdeData, metric) {
+            const dataMap = metric === 'dist' ? kdeData.dist : kdeData.cos;
+            const traces = [];
+            
+            sortedLabelsList.forEach(label => {
+                if (dataMap[label] && dataMap[label].length > 0) {
+                    traces.push({
+                        type: 'violin',
+                        x: dataMap[label],
+                        name: label,
+                        points: false,
+                        box: { visible: false },
+                        meanline: { visible: true },
+                        orientation: 'h',
+                        side: 'positive',
+                        width: 1.5,
+                        line: { width: 1, color: labelColors[label] }, 
+                        fillcolor: labelColors[label], 
+                        opacity: 0.6
+                    });
+                }
+            });
+
+            const layout = {
+                margin: { t: 0, l: 100, r: 20, b: 30 },
+                paper_bgcolor: 'rgba(0,0,0,0)',
+                plot_bgcolor: 'rgba(0,0,0,0)',
+                font: { color: '#9ca3af', size: 10 },
+                xaxis: { showgrid: true, gridcolor: '#374151' },
+                yaxis: { 
+                    automargin: true,
+                    categoryorder: 'array',
+                    categoryarray: sortedLabelsList.slice().reverse() 
+                },
+                showlegend: false,
+                height: 200
+            };
+
+            Plotly.react('kdeDiv', traces, layout, { displayModeBar: false });
+        }
+
+        // 4. Plotting (Plotly)
+        function renderPlot() {
+            // Check if we have coordinates
+            if (imagesData.length === 0 || imagesData[0].x === undefined) return;
+
+            const showImages = document.getElementById('showImagesToggle').checked;
+            const is2D = currentDim === 2;
+            const traces = [];
+            const groups = {};
+            
+            let minX = Infinity, maxX = -Infinity;
+            let minY = Infinity, maxY = -Infinity;
+
+            imagesData.forEach((item, idx) => {
+                if (!groups[item.label]) groups[item.label] = { x: [], y: [], z: [], ids: [] };
+                groups[item.label].x.push(item.x);
+                groups[item.label].y.push(item.y);
+                if (currentDim === 3) groups[item.label].z.push(item.z);
+                groups[item.label].ids.push(idx);
+
+                if (item.x < minX) minX = item.x;
+                if (item.x > maxX) maxX = item.x;
+                if (item.y < minY) minY = item.y;
+                if (item.y > maxY) maxY = item.y;
+            });
+
+            // Iterate using sortedLabels to ensure Legend Order matches Table Order
+            sortedLabels.forEach(label => {
+                if (!groups[label]) return;
+                const g = groups[label];
+                
+                const trace = {
+                    x: g.x,
+                    y: g.y,
+                    mode: 'markers',
+                    type: currentDim === 3 ? 'scatter3d' : 'scattergl',
+                    name: label,
+                    text: g.ids.map(id => imagesData[id].name),
+                    customdata: g.ids,
+                    marker: { 
+                        size: 5, 
+                        opacity: showImages && is2D ? 0 : 0.8, // Hide dots if showing images in 2D
+                        color: labelColors[label]
+                    }
+                };
+                if (currentDim === 3) trace.z = g.z;
+                traces.push(trace);
+            });
+
+            const layout = {
+                autosize: true,
+                paper_bgcolor: 'rgba(0,0,0,0)',
+                plot_bgcolor: 'rgba(0,0,0,0)',
+                font: { color: '#9ca3af' },
+                margin: { l: 0, r: 0, b: 0, t: 30 },
+                legend: { x: 0, y: 1, font: { size: 10 }, bgcolor: 'rgba(0,0,0,0.5)' },
+                scene: { 
+                    xaxis: { showgrid: true, gridcolor: '#374151', zeroline: false },
+                    yaxis: { showgrid: true, gridcolor: '#374151', zeroline: false },
+                    zaxis: { showgrid: true, gridcolor: '#374151', zeroline: false },
+                },
+                xaxis: { showgrid: true, gridcolor: '#374151', zeroline: false }, 
+                yaxis: { showgrid: true, gridcolor: '#374151', zeroline: false },
+                hovermode: 'closest'
+            };
+
+            // Image Overlay Logic for 2D
+            if (showImages && is2D) {
+                const xRange = maxX - minX;
+                const yRange = maxY - minY;
+                const imgSizeX = xRange * 0.05; // 5% of range
+                const imgSizeY = yRange * 0.05;
+
+                layout.images = imagesData.map(d => ({
+                    source: d.imgUrl,
+                    xref: 'x',
+                    yref: 'y',
+                    x: d.x,
+                    y: d.y,
+                    sizex: imgSizeX,
+                    sizey: imgSizeY,
+                    xanchor: 'center',
+                    yanchor: 'middle',
+                    layer: 'above'
+                }));
+            }
+
+            const config = { responsive: true, displayModeBar: true };
+            
+            Plotly.newPlot('plotDiv', traces, layout, config);
+
+            const plotDiv = document.getElementById('plotDiv');
+            plotDiv.on('plotly_hover', (data) => {
+                const point = data.points[0];
+                const imgIndex = point.customdata;
+                if (imgIndex !== undefined) {
+                    showPreview(imagesData[imgIndex]);
+                }
+            });
+        }
+
+        function showPreview(item) {
+            const reader = new FileReader();
+            reader.onload = (e) => {
+                previewImg.src = e.target.result;
+                previewImg.classList.remove('opacity-50');
+                // Add color indicator to label
+                const color = labelColors[item.label] || '#fff';
+                previewLabel.innerHTML = `<span style="color:${color}">●</span> ${item.label}: ${item.name}`;
+                previewLabel.classList.remove('hidden');
+            };
+            reader.readAsDataURL(item.file);
+        }
+
+        // 6. Export
+        exportBtn.addEventListener('click', () => {
+            if (imagesData.length === 0 || !imagesData[0].x) return;
+            
+            const headers = ['Name', 'Label', 'X', 'Y'];
+            if (currentDim === 3) headers.push('Z');
+            
+            const rows = [headers.join(',')];
+            imagesData.forEach(d => {
+                const row = [d.name, d.label, d.x.toFixed(5), d.y.toFixed(5)];
+                if (currentDim === 3) row.push(d.z.toFixed(5));
+                rows.push(row.join(','));
+            });
+
+            const csvContent = "data:text/csv;charset=utf-8," + rows.join("\n");
+            const encodedUri = encodeURI(csvContent);
+            const link = document.createElement("a");
+            link.setAttribute("href", encodedUri);
+            link.setAttribute("download", "analysis_result.csv");
+            document.body.appendChild(link);
+            link.click();
+            document.body.removeChild(link);
+        });
+
+    </script>
+</body>
+</html>
