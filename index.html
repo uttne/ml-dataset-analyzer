@@ -12,7 +12,7 @@
     <!-- JSZip for unzipping model files -->
     <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
 
-    <!-- t-SNE implementation -->
+    <!-- t-SNE implementation (CDN) -->
     <script src="https://cdn.jsdelivr.net/gh/karpathy/tsnejs@master/tsne.js"></script>
     
     <!-- Plotly.js (For 3D Plot & Statistics) -->
@@ -151,7 +151,7 @@
             background-color: #4b5563;
         }
 
-        /* Global JS Tooltip Styling (New) */
+        /* Global JS Tooltip Styling */
         #js-tooltip {
             position: fixed;
             z-index: 1000;
@@ -247,10 +247,12 @@
                     <!-- Random Seed Control -->
                     <div class="flex items-center gap-2 mt-1">
                         <label class="flex items-center cursor-pointer">
-                            <input type="checkbox" id="useFixedSeed" class="form-checkbox h-3 w-3 text-blue-600 rounded border-gray-600 bg-gray-700 focus:ring-0 focus:ring-offset-0">
+                            <!-- Default Checked -->
+                            <input type="checkbox" id="useFixedSeed" checked class="form-checkbox h-3 w-3 text-blue-600 rounded border-gray-600 bg-gray-700 focus:ring-0 focus:ring-offset-0">
                             <span class="ml-1 text-[10px] text-gray-400 has-tooltip" data-tooltip-title="Fix Random Seed" data-tooltip-content="t-SNEの計算結果を固定します。<br>有効にすると、同じデータ・設定であれば常に同じ配置が再現されます。">Fix Seed</span>
                         </label>
-                        <input type="number" id="seedValue" value="12345" disabled class="w-16 bg-gray-900 border border-gray-600 rounded px-1 py-0.5 text-[10px] disabled:opacity-50 disabled:cursor-not-allowed">
+                        <!-- Default Enabled -->
+                        <input type="number" id="seedValue" value="12345" class="w-16 bg-gray-900 border border-gray-600 rounded px-1 py-0.5 text-[10px]">
                     </div>
 
                     <div class="flex items-center justify-between border-t border-gray-700 pt-3 mt-1">
@@ -271,7 +273,7 @@
                     </div>
 
                     <button id="runBtn" disabled class="w-full bg-green-600 hover:bg-green-700 disabled:bg-gray-600 disabled:cursor-not-allowed text-white py-2 rounded shadow font-bold text-sm transition mt-2">
-                        Load Model First
+                        Run Analysis
                     </button>
                 </div>
             </div>
@@ -384,10 +386,59 @@
     </div>
 
     <script>
+        // --- OVERRIDE TSNE INIT FOR SEED CONTROL ---
+        // We wait until the script body runs, but since tsnejs is loaded via CDN in head, it should be available.
+        // Just in case, we wrap in a check or simple immediate execution block.
+        if (window.tsnejs) {
+            window.tsnejs.tSNE.prototype.initSolution = function() {
+                // Local gaussRandom that relies on current global Math.random()
+                // Since we set Math.random seed before calling initDataRaw -> initSolution, 
+                // this function will now be deterministic based on that seed.
+                // Also, we re-declare the cache variables locally so they are fresh for every initSolution call.
+                var return_v = false;
+                var v_val = 0.0;
+                var gaussRandom = function() {
+                    if(return_v) { 
+                        return_v = false;
+                        return v_val; 
+                    }
+                    var u = 2*Math.random()-1;
+                    var v = 2*Math.random()-1;
+                    var r = u*u + v*v;
+                    if(r == 0 || r > 1) return gaussRandom();
+                    var c = Math.sqrt(-2*Math.log(r)/r);
+                    v_val = v*c;
+                    return_v = true;
+                    return u*c;
+                };
+                var randn = function(mu, std) { return mu + gaussRandom() * std; };
+
+                var N = this.N;
+                var dim = this.dim;
+
+                var create2D = function(n, d, val) {
+                    var arr = [];
+                    for(var i=0; i<n; i++) {
+                        var row = new Float64Array(d);
+                        for(var j=0; j<d; j++) {
+                            row[j] = (val === undefined) ? randn(0.0, 1e-4) : val;
+                        }
+                        arr.push(row);
+                    }
+                    return arr;
+                };
+
+                this.Y = create2D(N, dim);
+                this.gains = create2D(N, dim, 1.0);
+                this.ystep = create2D(N, dim, 0.0);
+                this.iter = 0;
+            };
+        }
+
         // --- Configuration & State ---
         let currentDim = 2;
         let modelHandler = null;
-        let imagesData = []; 
+        let imagesData = []; // { ..., coords2D: {x,y}, coords3D: {x,y,z} }
         let isRunning = false;
         
         // Global state for sorting and colors
@@ -498,15 +549,62 @@
         }
 
         dimBtns.forEach(btn => {
-            btn.addEventListener('click', () => {
+            btn.addEventListener('click', async () => {
+                const newDim = parseInt(btn.dataset.dim);
+                if (newDim === currentDim) return; // Ignore if same
+
+                // Update UI
                 dimBtns.forEach(b => {
                     b.classList.remove('bg-blue-600', 'text-white');
                     b.classList.add('text-gray-400');
                 });
                 btn.classList.remove('text-gray-400');
                 btn.classList.add('bg-blue-600', 'text-white');
-                currentDim = parseInt(btn.dataset.dim);
-                renderPlot(); 
+                
+                currentDim = newDim;
+
+                // Cache Check Logic
+                if (imagesData.length > 0 && imagesData[0].features) {
+                    
+                    // Check if cache exists for target dimension
+                    const hasCache = imagesData.every(d => 
+                        (currentDim === 2 && d.coords2D) || 
+                        (currentDim === 3 && d.coords3D)
+                    );
+
+                    if (hasCache) {
+                        // Restore from cache
+                        imagesData.forEach(d => {
+                            if (currentDim === 2) {
+                                d.x = d.coords2D.x;
+                                d.y = d.coords2D.y;
+                            } else {
+                                d.x = d.coords3D.x;
+                                d.y = d.coords3D.y;
+                                d.z = d.coords3D.z;
+                            }
+                        });
+                        renderPlot();
+                    } else {
+                        // Calculate new dimension
+                        if (isRunning) return;
+                        isRunning = true;
+                        
+                        try {
+                            await runTSNE(); 
+                            renderPlot();
+                        } catch (e) {
+                            console.error(e);
+                            alert("Error: " + e.message);
+                        } finally {
+                            isRunning = false;
+                            setLoading(false);
+                            Math.random = originalMathRandom; 
+                        }
+                    }
+                } else {
+                    renderPlot(); 
+                }
             });
         });
 
@@ -540,12 +638,28 @@
                         this.model = await tf.loadGraphModel(urls[type], { fromTFHub: true });
                         this.renderSummary(false); 
                     }
+                    
+                    // Warmup immediately after load to stabilize GPU
+                    await this.warmup();
+
                     return true;
                 } catch (e) {
                     console.error(e);
                     alert("Model load failed: " + e.message);
                     return false;
                 }
+            }
+
+            async warmup() {
+                if (!this.model) return;
+                tf.tidy(() => {
+                    // Warmup with dummy data
+                    const zeros = tf.zeros([1, 224, 224, 3]);
+                    if (this.subModel) this.subModel.predict(zeros);
+                    else this.model.predict(zeros);
+                });
+                // Wait for GPU
+                await tf.nextFrame();
             }
 
             async loadZip(file) {
@@ -666,7 +780,8 @@
             imagesData = files.map(f => {
                 const parts = f.webkitRelativePath.split('/');
                 const label = parts.length >= 2 ? parts[parts.length - 2] : "root";
-                return { file: f, label: label, name: f.name, features: null };
+                // Init coords cache
+                return { file: f, label: label, name: f.name, features: null, coords2D: null, coords3D: null };
             });
 
             fileCount.innerText = `${imagesData.length} images`;
@@ -704,6 +819,15 @@
             setLoading(true, "Loading Model...", 50);
             await new Promise(r => setTimeout(r, 50));
             const success = await modelHandler.load(type, file);
+            
+            // RESET DATA on Model Change:
+            // Old features are invalid for new model
+            imagesData.forEach(d => { 
+                d.features = null;
+                d.coords2D = null;
+                d.coords3D = null; 
+            });
+
             setLoading(false);
             if (success) {
                 runBtn.innerText = "Run Analysis";
@@ -727,17 +851,14 @@
             runBtn.disabled = true;
             document.getElementById('emptyState').style.display = 'none';
 
-            // Setup Random Seed
-            if (useFixedSeedCheckbox.checked) {
-                const seed = parseInt(seedValueInput.value) || 12345;
-                Math.random = mulberry32(seed);
-            } else {
-                Math.random = originalMathRandom;
-            }
+            // Clear previous cache on Run Analysis, BUT KEEP FEATURES if model is same
+            imagesData.forEach(d => { d.coords2D = null; d.coords3D = null; });
 
             try {
-                await processImages();
+                await processImages(); // This will now skip if features exist
                 calculateStats();
+                
+                // seed logic is now inside runTSNE
                 await runTSNE();
                 renderPlot();
                 exportBtn.disabled = false;
@@ -748,7 +869,6 @@
                 isRunning = false;
                 runBtn.disabled = false;
                 setLoading(false);
-                // Reset Random to default after run (optional, but good for other parts of app)
                 Math.random = originalMathRandom; 
             }
         });
@@ -757,6 +877,13 @@
             const total = imagesData.length;
             for (let i = 0; i < total; i++) {
                 const item = imagesData[i];
+                
+                // Optimization: Skip if features already extracted (fixes instability)
+                if (item.features) {
+                    // Also ensure width/height are set
+                    if (item.width && item.height) continue;
+                }
+
                 setLoading(true, `Extracting Features (${i+1}/${total})`, (i/total)*100);
                 
                 if (!item.imgUrl) {
@@ -766,9 +893,12 @@
                 const { img, width, height } = await loadImage(item.file);
                 item.width = width;
                 item.height = height;
-                item.imgElement = img; // Save for D3 rendering
+                item.imgElement = img; 
                 
-                item.features = modelHandler.predict(img);
+                // Only predict if features missing
+                if (!item.features) {
+                    item.features = modelHandler.predict(img);
+                }
                 
                 if (i % 5 === 0) await new Promise(r => setTimeout(r, 0));
             }
@@ -792,7 +922,11 @@
         }
 
         async function runTSNE() {
-            setLoading(true, "Initializing t-SNE...", 0);
+            setLoading(true, `Initializing t-SNE (${currentDim}D)...`, 0);
+            
+            // Wait a tick for UI update
+            await new Promise(r => setTimeout(r, 10));
+
             const features = imagesData.map(d => d.features);
             const perplexity = parseInt(document.getElementById('perplexity').value) || 20;
             const iterations = parseInt(document.getElementById('iterations').value) || 400;
@@ -801,8 +935,19 @@
                 dim: currentDim,
                 epsilon: 10
             };
+
+            // --- FIX SEED HERE ---
+            if (useFixedSeedCheckbox.checked) {
+                const seed = parseInt(seedValueInput.value) || 12345;
+                Math.random = mulberry32(seed);
+            } else {
+                Math.random = originalMathRandom;
+            }
+            // ---------------------
+
             const tsne = new tsnejs.tSNE(opt);
             tsne.initDataRaw(features);
+            
             for (let k = 0; k < iterations; k++) {
                 tsne.step();
                 if (k % 20 === 0) {
@@ -811,11 +956,22 @@
                 }
             }
             const solution = tsne.getSolution();
-            solution.forEach((point, i) => {
-                imagesData[i].x = point[0];
-                imagesData[i].y = point[1];
-                if (currentDim === 3) imagesData[i].z = point[2];
-            });
+            
+            // Cache results
+            if (currentDim === 2) {
+                solution.forEach((point, i) => {
+                    imagesData[i].coords2D = { x: point[0], y: point[1] };
+                    imagesData[i].x = point[0];
+                    imagesData[i].y = point[1];
+                });
+            } else {
+                solution.forEach((point, i) => {
+                    imagesData[i].coords3D = { x: point[0], y: point[1], z: point[2] };
+                    imagesData[i].x = point[0];
+                    imagesData[i].y = point[1];
+                    imagesData[i].z = point[2];
+                });
+            }
         }
 
         // --- Render Plot (Switch) ---
@@ -825,10 +981,10 @@
 
             if (currentDim === 2) {
                 renderD3_2D();
-                resetViewBtn.style.display = "block"; // Show reset button
+                resetViewBtn.style.display = "block"; 
             } else {
                 renderPlotly3D();
-                resetViewBtn.style.display = "none"; // Hide reset button (Plotly has its own)
+                resetViewBtn.style.display = "none"; 
             }
         }
 
