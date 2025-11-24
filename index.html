@@ -419,7 +419,7 @@
     <!-- Global Tooltip Element -->
     <div id="js-tooltip"></div>
 
-    <!-- Image Viewer Modal (Updated) -->
+    <!-- Image Viewer Modal -->
     <div id="imageViewerModal" onclick="closeImageViewer()">
         <div id="imageViewerContent" onclick="event.stopPropagation()">
             <!-- 1. Header & Controls -->
@@ -1824,6 +1824,30 @@
         modelHandler = new ModelHandler();
 
         // --- New Dataset List Logic ---
+        function resetDataState() {
+            if (imagesData) {
+                imagesData.forEach(d => { if(d.imgUrl && d.file) URL.revokeObjectURL(d.imgUrl); });
+            }
+            imagesData = [];
+            sortedLabels = [];
+            labelColors = {};
+            hiddenLabels.clear();
+            hoveredItem = null;
+            currentViewerIndex = -1;
+            const plotDiv = document.getElementById('plotDiv');
+            if(plotDiv) plotDiv.innerHTML = '';
+            const emptyState = document.getElementById('emptyState');
+            if(emptyState) emptyState.style.display = 'flex';
+        }
+
+        function assignInitialColors() {
+            const uniqueLabels = Array.from(new Set(imagesData.map(d => d.label))).sort();
+            uniqueLabels.forEach((label, idx) => {
+                labelColors[label] = COLOR_PALETTE[idx % COLOR_PALETTE.length];
+            });
+            sortedLabels = uniqueLabels;
+        }
+
         function renderDatasetList() {
             const list = document.getElementById('categoryList');
             const explorer = document.getElementById('datasetExplorer');
@@ -1831,11 +1855,11 @@
             
             if (imagesData.length === 0) {
                 explorer.classList.add('hidden');
-                showGridBtn.disabled = true; // Disable Grid
+                showGridBtn.disabled = true; 
                 return;
             }
             explorer.classList.remove('hidden');
-            showGridBtn.disabled = false; // Enable Grid
+            showGridBtn.disabled = false; 
 
             const groups = {};
             imagesData.forEach(d => {
@@ -1843,38 +1867,35 @@
                 groups[d.label].push(d);
             });
 
-            const sortedKeys = Object.keys(groups).sort();
+            // Use global sortedLabels if available, else local sort
+            const labelsToUse = sortedLabels.length > 0 ? sortedLabels : Object.keys(groups).sort();
 
-            sortedKeys.forEach(label => {
+            labelsToUse.forEach(label => {
                 const files = groups[label];
+                if (!files) return;
                 const color = labelColors[label] || '#9ca3af';
                 
-                // Category Row
                 const catDiv = document.createElement('div');
                 catDiv.className = 'border-b border-gray-800 last:border-0';
                 
-                // Header
                 const header = document.createElement('div');
                 header.className = 'flex items-center px-2 py-1 bg-gray-800 hover:bg-gray-700 cursor-pointer group transition-colors';
                 
-                // Visibility Checkbox
                 const checkbox = document.createElement('input');
                 checkbox.type = 'checkbox';
                 checkbox.checked = !hiddenLabels.has(label);
                 checkbox.className = 'mr-2 form-checkbox h-3 w-3 text-blue-600 rounded border-gray-600 bg-gray-700 cursor-pointer';
-                checkbox.dataset.label = label; // Tag for updates
+                checkbox.dataset.label = label; 
                 checkbox.onclick = (e) => {
                     e.stopPropagation();
                     toggleLabelVisibility(label);
                 };
                 
-                // Label Text
                 const labelSpan = document.createElement('span');
                 labelSpan.className = 'flex-grow font-bold truncate';
                 labelSpan.style.color = color;
                 labelSpan.innerText = `${label} (${files.length})`;
                 
-                // Expand/Collapse Icon
                 const icon = document.createElement('span');
                 icon.className = 'text-gray-500 transform transition-transform group-hover:text-gray-300';
                 icon.innerText = '▶'; 
@@ -1884,11 +1905,9 @@
                 header.appendChild(labelSpan);
                 header.appendChild(icon);
                 
-                // File List Container (Hidden by default)
                 const fileList = document.createElement('div');
                 fileList.className = 'hidden pl-6 pr-2 py-1 space-y-0.5 bg-gray-850 border-t border-gray-800';
                 
-                // Toggle Logic
                 let expanded = false;
                 let rendered = false;
                 
@@ -1897,8 +1916,6 @@
                     expanded = !expanded;
                     fileList.classList.toggle('hidden', !expanded);
                     icon.style.transform = expanded ? 'rotate(90deg)' : 'rotate(0deg)';
-                    
-                    // Lazy render files
                     if (expanded && !rendered) {
                          files.forEach(f => {
                              const fDiv = document.createElement('div');
@@ -1922,47 +1939,30 @@
             } else {
                 hiddenLabels.add(label);
             }
-            
-            // Sync Checkboxes in List
             document.querySelectorAll('#categoryList input[type="checkbox"]').forEach(cb => {
                 if (cb.dataset.label === label) {
                     cb.checked = !hiddenLabels.has(label);
                 }
             });
-            
-            // Sync D3 Legend (if exists)
             d3.selectAll('.legend-item').each(function() {
                 const el = d3.select(this);
                 if (el.attr('data-label') === label) {
                     el.classed('inactive', hiddenLabels.has(label));
                 }
             });
-
-            // Re-render plots
             renderPlot();
         }
 
         toggleAllBtn.onclick = () => {
             const allLabels = Object.keys(imagesData.reduce((acc, d) => { acc[d.label]=1; return acc; }, {}));
-            if (hiddenLabels.size > 0) {
-                // Show all
-                hiddenLabels.clear();
-            } else {
-                // Hide all
-                allLabels.forEach(l => hiddenLabels.add(l));
-            }
-            // Update UI
-            renderDatasetList(); // Simplest way to refresh all checks
-            renderPlot();
+            if (hiddenLabels.size > 0) { hiddenLabels.clear(); } else { allLabels.forEach(l => hiddenLabels.add(l)); }
+            renderDatasetList(); renderPlot(); renderImageGrid();
         };
 
         // --- Main Logic ---
         
         fileInput.addEventListener('change', (e) => {
-            // Revoke old URLs
-            imagesData.forEach(d => { if(d.imgUrl) URL.revokeObjectURL(d.imgUrl); });
-            imagesData = [];
-            hiddenLabels.clear();
+            resetDataState();
             
             const files = Array.from(e.target.files).filter(f => f.type.startsWith('image/'));
             if (files.length === 0) return;
@@ -1970,56 +1970,46 @@
             imagesData = files.map(f => {
                 const parts = f.webkitRelativePath.split('/');
                 const label = parts.length >= 2 ? parts[parts.length - 2] : "root";
-                // Init coords cache
                 return { 
                     file: f, 
                     label: label, 
                     name: f.name, 
-                    imgUrl: URL.createObjectURL(f), // Create URL immediately
+                    imgUrl: URL.createObjectURL(f),
                     features: null, 
                     coords2D: null, 
                     coords3D: null 
                 };
             });
 
+            assignInitialColors();
             fileCount.innerText = `${imagesData.length} files`;
-            document.getElementById('emptyState').style.display = 'flex';
-            document.getElementById('plotDiv').innerHTML = ''; 
             checkReady();
-            renderDatasetList(); // Update List
+            renderDatasetList(); 
         });
 
         // --- Demo Dataset Generation (Enhanced) ---
         demoBtn.addEventListener('click', async () => {
-            // Clear existing
-            imagesData.forEach(d => { if(d.imgUrl) URL.revokeObjectURL(d.imgUrl); });
-            imagesData = [];
-            hiddenLabels.clear();
+            resetDataState();
 
             setLoading(true, "Generating Dataset...", 0);
             await new Promise(r => setTimeout(r, 50));
 
-            // Params
             const mode = document.getElementById('genMode').value;
             const seedFixed = document.getElementById('useGenSeed').checked;
             const seedVal = parseInt(document.getElementById('genSeedValue').value) || 999;
             
-            // Random Generator setup
             genRandom = seedFixed ? mulberry32(seedVal) : Math.random;
 
-            // Augmentation Params (normalized 0-1 or specific range)
             const params = {
-                colorVar: parseInt(paramColorVar.value),       // 0-180
-                brightness: parseInt(paramBrightness.value),   // 0-100%
-                contrast: parseInt(paramContrast.value),       // 0-100%
-                shift: parseInt(paramShift.value),             // 0-50 px
-                rotate: parseInt(paramRotate.value),           // 0-180 deg
-                noise: parseInt(paramNoise.value),             // 0-100
-                anomaly: parseInt(paramAnomaly.value)          // 0-100
+                colorVar: parseInt(paramColorVar.value),       
+                brightness: parseInt(paramBrightness.value),   
+                contrast: parseInt(paramContrast.value),       
+                shift: parseInt(paramShift.value),             
+                rotate: parseInt(paramRotate.value),           
+                noise: parseInt(paramNoise.value),             
+                anomaly: parseInt(paramAnomaly.value)          
             };
 
-            // Normalized Factors (0.0 - 1.0) for controlling variations
-            // If these are 0, the variation added by genRandom() will be 0.
             const factors = {
                 color: params.colorVar / 180,
                 brightness: params.brightness / 100,
@@ -2050,13 +2040,9 @@
             for (let cIndex = 0; cIndex < classes.length; cIndex++) {
                 const label = classes[cIndex];
                 for (let i = 0; i < itemsPerClass; i++) {
-                    
-                    // 1. Clear & Background
                     ctx.filter = 'none';
-                    ctx.setTransform(1, 0, 0, 1, 0, 0); // Reset transform
+                    ctx.setTransform(1, 0, 0, 1, 0, 0);
                     
-                    // Dark background with variation controlled by color factor
-                    // If factor is 0, randomness is 0 -> fixed background
                     const bgBase = 30;
                     const bgR = bgBase + (genRandom() * 20 * factors.color);
                     const bgG = bgBase + (genRandom() * 20 * factors.color);
@@ -2064,8 +2050,6 @@
                     ctx.fillStyle = `rgb(${bgR}, ${bgG}, ${bgB})`;
                     ctx.fillRect(0, 0, size, size);
 
-                    // 2. Setup Augmentation (Shift/Rotate)
-                    // If params.shift/rotate are 0, these will be 0 -> No variation
                     const shiftX = (genRandom() - 0.5) * 2 * params.shift;
                     const shiftY = (genRandom() - 0.5) * 2 * params.shift;
                     const rotRad = (genRandom() - 0.5) * 2 * (params.rotate * Math.PI / 180);
@@ -2074,17 +2058,14 @@
                     ctx.rotate(rotRad);
                     ctx.translate(-size/2, -size/2);
 
-                    // 3. Draw Object
                     if (mode === 'shapes') {
                         drawShape(ctx, label, size, factors);
                     } else {
                         drawBottle(ctx, label, size, factors);
                     }
 
-                    // 4. Reset Transform for Filters/Noise (Apply to whole image)
                     ctx.setTransform(1, 0, 0, 1, 0, 0);
 
-                    // 5. Apply Image Filters (Brightness, Contrast, Hue)
                     if (params.brightness > 0 || params.contrast > 0 || params.colorVar > 0) {
                          const tempCanvas = document.createElement('canvas');
                          tempCanvas.width = size; 
@@ -2092,11 +2073,9 @@
                          const tCtx = tempCanvas.getContext('2d');
                          tCtx.drawImage(canvas, 0, 0);
 
-                         // Calculate random values based on factors
-                         // If factor is 0, the deviation from 100% or 0deg is 0.
-                         const bVal = 100 + (genRandom() - 0.5) * 2 * params.brightness; // %
-                         const cVal = 100 + (genRandom() - 0.5) * 2 * params.contrast;   // %
-                         const hVal = (genRandom() - 0.5) * 2 * params.colorVar;         // deg
+                         const bVal = 100 + (genRandom() - 0.5) * 2 * params.brightness;
+                         const cVal = 100 + (genRandom() - 0.5) * 2 * params.contrast;
+                         const hVal = (genRandom() - 0.5) * 2 * params.colorVar;
 
                          ctx.clearRect(0, 0, size, size);
                          ctx.filter = `brightness(${bVal}%) contrast(${cVal}%) hue-rotate(${hVal}deg)`;
@@ -2104,7 +2083,6 @@
                          ctx.filter = 'none';
                     }
 
-                    // 6. Apply Noise (Pixel Manipulation)
                     if (params.noise > 0) {
                         const imgData = ctx.getImageData(0, 0, size, size);
                         const data = imgData.data;
@@ -2119,7 +2097,6 @@
                         ctx.putImageData(imgData, 0, 0);
                     }
 
-                    // Convert to File
                     const blob = await new Promise(resolve => canvas.toBlob(resolve, 'image/jpeg', 0.9));
                     const file = new File([blob], `${label}_${i}.jpg`, { type: 'image/jpeg' });
 
@@ -2127,7 +2104,7 @@
                         file: file,
                         label: label,
                         name: file.name,
-                        imgUrl: URL.createObjectURL(file), // Create URL immediately
+                        imgUrl: URL.createObjectURL(file),
                         features: null,
                         coords2D: null,
                         coords3D: null
@@ -2137,18 +2114,15 @@
 
             imagesData = newImages;
             fileCount.innerText = `${imagesData.length} files (Gen)`;
-            
-            document.getElementById('emptyState').style.display = 'flex';
-            document.getElementById('plotDiv').innerHTML = '';
+            assignInitialColors();
             
             setLoading(false);
             checkReady();
-            renderDatasetList(); // Update List
+            renderDatasetList(); 
         });
 
         function drawShape(ctx, label, size, factors) {
-            // Base Color with variation factor
-            const hueBase = 200; // Fixed base if factor is 0
+            const hueBase = 200;
             const hue = Math.floor(hueBase + (genRandom() - 0.5) * 360 * factors.color);
             ctx.fillStyle = `hsl(${hue}, 70%, 60%)`;
             
@@ -2174,14 +2148,11 @@
         function drawBottle(ctx, label, size, factors) {
             const cx = size / 2;
             const cy = size / 2;
-            
             const w = size * 0.35;
             const h = size * 0.6;
             const neckW = w * 0.4;
             const neckH = h * 0.25;
             
-            // Bottle Color: Variation controlled by factors.color
-            // If color factor is 0, hue is fixed.
             const baseHueVal = 200;
             const hueVar = (genRandom() - 0.5) * 40 * factors.color;
             const baseHue = baseHueVal + hueVar; 
@@ -2190,77 +2161,58 @@
             ctx.strokeStyle = `hsla(${baseHue}, 80%, 40%, 1.0)`;
             ctx.lineWidth = 2;
 
-            // Draw Body
             ctx.beginPath();
-            ctx.rect(cx - neckW/2, cy - h/2, neckW, neckH); // Neck
+            ctx.rect(cx - neckW/2, cy - h/2, neckW, neckH); 
             ctx.moveTo(cx - neckW/2, cy - h/2 + neckH);
-            ctx.lineTo(cx - w/2, cy - h/2 + neckH + 10); // Shoulder
-            ctx.lineTo(cx - w/2, cy + h/2 - 5); // Body Side
-            ctx.quadraticCurveTo(cx - w/2, cy + h/2, cx - w/2 + 5, cy + h/2); // Bottom Left
-            ctx.lineTo(cx + w/2 - 5, cy + h/2); // Bottom
-            ctx.quadraticCurveTo(cx + w/2, cy + h/2, cx + w/2, cy + h/2 - 5); // Bottom Right
-            ctx.lineTo(cx + w/2, cy - h/2 + neckH + 10); // Body Side
-            ctx.lineTo(cx + neckW/2, cy - h/2 + neckH); // Shoulder
-            
+            ctx.lineTo(cx - w/2, cy - h/2 + neckH + 10); 
+            ctx.lineTo(cx - w/2, cy + h/2 - 5); 
+            ctx.quadraticCurveTo(cx - w/2, cy + h/2, cx - w/2 + 5, cy + h/2); 
+            ctx.lineTo(cx + w/2 - 5, cy + h/2); 
+            ctx.quadraticCurveTo(cx + w/2, cy + h/2, cx + w/2, cy + h/2 - 5); 
+            ctx.lineTo(cx + w/2, cy - h/2 + neckH + 10); 
+            ctx.lineTo(cx + neckW/2, cy - h/2 + neckH); 
             ctx.fill();
             ctx.stroke();
 
-            // Liquid Level: Variation controlled by factors.shift
-            // If shift factor is 0, level is fixed at 0.1
             const levelVar = genRandom() * 0.2 * factors.shift; 
             const level = 0.1 + levelVar;
-            
             ctx.fillStyle = `hsla(${baseHue}, 75%, 50%, 0.5)`;
             ctx.beginPath();
             const ly = cy - h/2 + h * level;
             ctx.rect(cx - w/2 + 2, ly, w - 4, (cy + h/2) - ly - 2);
             ctx.fill();
 
-            // Cap
             ctx.fillStyle = "#333";
             ctx.fillRect(cx - neckW/2 - 2, cy - h/2 - 5, neckW + 4, 10);
 
-            // --- Anomalies ---
-            // Controlled by factors.anomaly
             if (label === 'Scratch') {
                 ctx.strokeStyle = "rgba(255, 255, 255, 0.7)";
                 ctx.lineWidth = 1.5;
-                
                 const numScratches = 1 + Math.floor(genRandom() * 2 * factors.anomaly);
-                
                 for(let k=0; k<numScratches; k++) {
                     ctx.beginPath();
                     const fixedOffsetX = (k === 0) ? 0 : (w * 0.2); 
                     const fixedOffsetY = (k === 0) ? 0 : (h * 0.2);
-                    
                     const offsetX = (genRandom() - 0.5) * w * 0.6 * factors.anomaly;
                     const offsetY = (genRandom() - 0.5) * h * 0.4 * factors.anomaly;
-                    
                     const sx = cx + fixedOffsetX + offsetX;
                     const sy = cy + fixedOffsetY + offsetY;
-                    
                     const len = 20 + (genRandom() - 0.5) * 20 * factors.anomaly; 
                     const scratchAngle = (factors.anomaly > 0) ? genRandom() * Math.PI : 0; 
-
                     ctx.moveTo(sx, sy);
                     ctx.lineTo(sx + Math.cos(scratchAngle)*len, sy + Math.sin(scratchAngle)*len);
                     ctx.stroke();
                 }
             } else if (label === 'Stain') {
                 ctx.fillStyle = "rgba(50, 40, 30, 0.6)";
-                
                 const numStains = 1 + Math.floor(genRandom() * 2 * factors.anomaly);
                 for(let k=0; k<numStains; k++) {
                     const fixedOffsetX = (k === 0) ? 0 : -(w * 0.2);
-                    
                     const offsetX = (genRandom() - 0.5) * w * 0.6 * factors.anomaly;
                     const offsetY = (genRandom() - 0.5) * h * 0.4 * factors.anomaly;
-                    
                     const sx = cx + fixedOffsetX + offsetX;
                     const sy = cy + offsetY;
-                    
                     const radius = 5 + genRandom() * 5 * factors.anomaly;
-                    
                     ctx.beginPath();
                     ctx.arc(sx, sy, radius, 0, Math.PI * 2);
                     ctx.fill();
