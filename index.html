@@ -187,7 +187,7 @@
         }
 
         /* Model Graph Styles */
-        #graphModal {
+        #graphModal, #gridModal {
             display: none;
             position: fixed;
             inset: 0;
@@ -262,12 +262,181 @@
             fill: #374151;
             filter: drop-shadow(0 0 4px rgba(96, 165, 250, 0.5));
         }
+
+        /* Grid View Styles */
+        .grid-section {
+            margin-bottom: 2rem;
+        }
+        .grid-section-header {
+            font-size: 0.875rem;
+            font-weight: bold;
+            color: #9ca3af;
+            border-bottom: 1px solid #374151;
+            padding-bottom: 0.5rem;
+            margin-bottom: 1rem;
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+        }
+        .image-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(100px, 1fr));
+            gap: 1rem;
+        }
+        .grid-item {
+            aspect-ratio: 1;
+            background-color: #1f2937;
+            border: 1px solid #374151;
+            border-radius: 0.5rem;
+            overflow: hidden;
+            position: relative;
+            transition: transform 0.1s, border-color 0.1s;
+            cursor: pointer;
+        }
+        .grid-item:hover {
+            transform: scale(1.05);
+            border-color: #60a5fa;
+            z-index: 10;
+        }
+        .grid-item img {
+            width: 100%;
+            height: 100%;
+            object-fit: cover;
+        }
+        .grid-item-label {
+            position: absolute;
+            bottom: 0;
+            left: 0;
+            right: 0;
+            background: rgba(0,0,0,0.7);
+            color: #f3f4f6;
+            font-size: 0.65rem;
+            padding: 2px 4px;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            text-align: center;
+        }
+
+        /* Image Viewer Modal Styles */
+        #imageViewerModal {
+            display: none;
+            position: fixed;
+            inset: 0;
+            background-color: rgba(0, 0, 0, 0.95);
+            z-index: 60; /* Higher than GridModal (50) */
+            justify-content: center;
+            align-items: center;
+            backdrop-filter: blur(4px);
+        }
+        /* ビューワーコンテンツ：カード形式 */
+        #imageViewerContent {
+            background-color: #111827;
+            border: 1px solid #374151;
+            border-radius: 8px;
+            display: flex;
+            flex-direction: column;
+            width: 95vw;
+            height: 90vh;
+            max-width: 1200px;
+            box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.5);
+            overflow: hidden;
+        }
+        
+        /* 画像表示エリア */
+        #fullImageWrapper {
+            flex-grow: 1;
+            background-color: #000; /* 黒背景で画像を目立たせる */
+            position: relative;
+            overflow: hidden;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            cursor: grab;
+        }
+        #fullImageWrapper:active {
+            cursor: grabbing;
+        }
+        #fullImage {
+            max-width: 100%;
+            max-height: 100%;
+            object-fit: contain;
+            transform-origin: center center;
+            transition: transform 0.1s ease-out; /* スムーズなズーム */
+            user-select: none; /* ドラッグ時の選択防止 */
+            -webkit-user-drag: none;
+        }
+
+        /* コントロールバー */
+        #viewerControls {
+            background-color: #1f2937;
+            border-bottom: 1px solid #374151;
+            padding: 0.75rem 1rem;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            flex-shrink: 0;
+        }
+        
+        /* フッター（ファイル名など） */
+        #viewerFooter {
+            background-color: #1f2937;
+            border-top: 1px solid #374151;
+            padding: 0.75rem 1rem;
+            flex-shrink: 0;
+        }
     </style>
 </head>
 <body class="bg-gray-900 text-white h-screen font-sans flex flex-col overflow-hidden">
 
     <!-- Global Tooltip Element -->
     <div id="js-tooltip"></div>
+
+    <!-- Image Viewer Modal (Updated) -->
+    <div id="imageViewerModal" onclick="closeImageViewer()">
+        <div id="imageViewerContent" onclick="event.stopPropagation()">
+            <!-- 1. Header & Controls -->
+            <div id="viewerControls">
+                <div class="flex items-center gap-3 overflow-hidden">
+                    <!-- Label Badge -->
+                    <span id="fullImageCategory" class="px-2 py-1 text-xs font-bold rounded text-white bg-blue-600 flex-shrink-0">Category</span>
+                </div>
+                
+                <div class="flex items-center gap-2 ml-4 flex-shrink-0">
+                    <!-- Zoom Controls -->
+                    <div class="flex bg-gray-700 rounded overflow-hidden mr-2 border border-gray-600">
+                        <button onclick="zoomImage(-0.2)" class="px-3 py-1.5 hover:bg-gray-600 text-gray-300 transition border-r border-gray-600" title="Zoom Out">
+                            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M20 12H4"></path></svg>
+                        </button>
+                        <button onclick="resetZoom()" class="px-3 py-1.5 hover:bg-gray-600 text-xs font-bold text-gray-300 transition border-r border-gray-600" title="Reset Zoom">
+                            100%
+                        </button>
+                        <button onclick="zoomImage(0.2)" class="px-3 py-1.5 hover:bg-gray-600 text-gray-300 transition" title="Zoom In">
+                            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4"></path></svg>
+                        </button>
+                    </div>
+                    
+                    <!-- Close Button -->
+                    <button onclick="closeImageViewer()" class="text-gray-400 hover:text-white p-1 rounded hover:bg-gray-700 transition">
+                        <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"></path></svg>
+                    </button>
+                </div>
+            </div>
+
+            <!-- 2. Image Area (Scrollable/Pannable) -->
+            <div id="fullImageWrapper" onwheel="handleWheelZoom(event)">
+                <img id="fullImage" src="" alt="Full Size Image">
+            </div>
+
+            <!-- 3. Footer (Filename) -->
+            <div id="viewerFooter">
+                <div class="flex flex-col">
+                    <span class="text-[10px] text-gray-500 uppercase tracking-wider mb-0.5">Filename</span>
+                    <span id="fullImageName" class="text-sm font-mono text-gray-300 break-all">image_filename.jpg</span>
+                </div>
+            </div>
+        </div>
+    </div>
 
     <!-- Model Graph Modal -->
     <div id="graphModal">
@@ -291,6 +460,39 @@
         </div>
     </div>
 
+    <!-- Grid View Modal -->
+    <div id="gridModal">
+        <div class="flex flex-col w-[90vw] h-[90vh] bg-[#111827] rounded-lg overflow-hidden border border-gray-700">
+            <div class="flex justify-between items-center bg-gray-800 p-3 border-b border-gray-700">
+                <h2 class="text-lg font-bold text-blue-400 flex items-center gap-2">
+                    <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 6a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2H6a2 2 0 01-2-2V6zM14 6a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2h-2a2 2 0 01-2-2V6zM4 16a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2H6a2 2 0 01-2-2v-2zM14 16a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2h-2a2 2 0 01-2-2v-2z"></path></svg>
+                    Dataset Gallery
+                </h2>
+                <div class="flex items-center gap-3">
+                    <button id="closeGridBtn" class="text-gray-400 hover:text-white transition">
+                        <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"></path></svg>
+                    </button>
+                </div>
+            </div>
+            <div class="flex flex-grow overflow-hidden">
+                <!-- Filter Sidebar -->
+                <aside class="w-64 bg-gray-850 border-r border-gray-700 flex flex-col p-4 overflow-hidden">
+                    <div class="flex justify-between items-center mb-3">
+                        <h3 class="text-sm font-bold text-gray-400">Categories</h3>
+                        <button id="gridToggleAll" class="text-xs text-blue-400 hover:text-blue-300">Toggle All</button>
+                    </div>
+                    <div id="gridFilterList" class="flex-grow overflow-y-auto space-y-1">
+                        <!-- Filters injected here -->
+                    </div>
+                </aside>
+                <!-- Grid Area -->
+                <div id="gridContainer" class="flex-grow overflow-y-auto p-6 bg-gray-900 scrollbar-thin">
+                    <!-- Images injected here -->
+                </div>
+            </div>
+        </div>
+    </div>
+
     <!-- Header -->
     <header class="bg-gray-800 border-b border-gray-700 px-6 py-3 flex justify-between items-center shadow-md z-20 flex-shrink-0">
         <div>
@@ -300,7 +502,7 @@
             </h1>
         </div>
         <div class="flex items-center gap-3">
-            <button id="exportBtn" disabled class="bg-gray-700 hover:bg-gray-600 text-white text-xs px-3 py-1.5 rounded transition disabled:opacity-50 flex items-center gap-1 has-tooltip" data-tooltip-title="Export CSV" data-tooltip-content="現在のプロットデータ（座標、ラベル、ファイル名）をCSV形式でダウンロードします。">
+            <button id="exportBtn" disabled class="bg-gray-700 hover:bg-gray-600 text-white text-xs px-3 py-1.5 rounded transition disabled:opacity-50 flex items-center gap-1 has-tooltip border border-gray-600" data-tooltip-title="Export CSV" data-tooltip-content="現在のプロットデータ（座標、ラベル、ファイル名）をCSV形式でダウンロードします。">
                 <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"></path></svg>
                 Export CSV
             </button>
@@ -419,9 +621,15 @@
                     
                     <!-- Dataset Explorer -->
                     <div id="datasetExplorer" class="mt-2 border-t border-gray-700 pt-2 hidden">
-                        <div class="flex justify-between items-center mb-1">
+                        <div class="flex justify-between items-center mb-1 gap-2">
                              <label class="text-[10px] text-gray-400 font-bold uppercase has-tooltip" data-tooltip-title="Dataset Explorer" data-tooltip-content="カテゴリ（フォルダ名）ごとのファイル一覧です。<br>チェックボックスで表示/非表示を切り替えられます。<br>▶をクリックするとファイル名を確認できます。">Explorer & Filters</label>
-                             <button id="toggleAllBtn" class="text-[9px] text-blue-400 hover:text-blue-300">Show All</button>
+                             <div class="flex gap-2">
+                                 <button id="showGridBtn" disabled class="text-[9px] text-indigo-400 hover:text-indigo-300 disabled:opacity-50 flex items-center gap-1 border border-indigo-900 bg-indigo-900/20 px-1 rounded">
+                                     <svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 6a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2H6a2 2 0 01-2-2V6zM14 6a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2h-2a2 2 0 01-2-2V6zM4 16a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2H6a2 2 0 01-2-2v-2zM14 16a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2h-2a2 2 0 01-2-2v-2z"></path></svg>
+                                     Gallery
+                                 </button>
+                                 <button id="toggleAllBtn" class="text-[9px] text-blue-400 hover:text-blue-300">Show All</button>
+                             </div>
                         </div>
                         <div id="categoryList" class="max-h-40 overflow-y-auto bg-gray-900 rounded border border-gray-700 text-[10px]">
                             <!-- Categories will be injected here -->
@@ -713,6 +921,21 @@
         const graphSvgContainer = document.getElementById('graphSvgContainer');
         const resetGraphBtn = document.getElementById('resetGraphBtn');
 
+        // Grid DOM Elements
+        const showGridBtn = document.getElementById('showGridBtn');
+        const gridModal = document.getElementById('gridModal');
+        const closeGridBtn = document.getElementById('closeGridBtn');
+        const gridContainer = document.getElementById('gridContainer');
+        const gridFilterList = document.getElementById('gridFilterList');
+        const gridToggleAll = document.getElementById('gridToggleAll');
+
+        // Image Viewer DOM Elements
+        const imageViewerModal = document.getElementById('imageViewerModal');
+        const fullImageWrapper = document.getElementById('fullImageWrapper');
+        const fullImage = document.getElementById('fullImage');
+        const fullImageCategory = document.getElementById('fullImageCategory');
+        const fullImageName = document.getElementById('fullImageName');
+
         // Generation Parameters
         const paramColorVar = document.getElementById('paramColorVar');
         const paramBrightness = document.getElementById('paramBrightness');
@@ -889,6 +1112,198 @@
                 graphSvgSelection.transition().duration(750).call(graphZoom.transform, graphInitialTransform);
             }
         });
+
+        // --- Grid Modal Logic ---
+        showGridBtn.addEventListener('click', () => {
+            gridModal.style.display = 'flex';
+            renderImageGrid();
+        });
+        closeGridBtn.addEventListener('click', () => {
+            gridModal.style.display = 'none';
+        });
+        gridModal.addEventListener('click', (e) => {
+            if(e.target === gridModal) gridModal.style.display = 'none';
+        });
+
+        gridToggleAll.onclick = () => {
+            const allLabels = Object.keys(imagesData.reduce((acc, d) => { acc[d.label]=1; return acc; }, {}));
+            if (hiddenLabels.size > 0) {
+                hiddenLabels.clear();
+            } else {
+                allLabels.forEach(l => hiddenLabels.add(l));
+            }
+            renderDatasetList(); // Sync main list
+            renderPlot();       // Sync main plot
+            renderImageGrid();  // Sync grid view
+        };
+
+        // --- Image Viewer Logic ---
+        let viewerScale = 1;
+        let viewerTranslate = { x: 0, y: 0 };
+        let isDraggingImage = false;
+        let dragStart = { x: 0, y: 0 };
+
+        function openImageViewer(item) {
+            fullImage.src = item.imgUrl || "";
+            if (!item.imgUrl) {
+                 const reader = new FileReader();
+                 reader.onload = (e) => fullImage.src = e.target.result;
+                 reader.readAsDataURL(item.file);
+            }
+            fullImageCategory.innerText = item.label;
+            fullImageCategory.style.backgroundColor = labelColors[item.label] || '#3b82f6';
+            fullImageName.innerText = item.name;
+            
+            resetZoom(); // Init zoom state
+            imageViewerModal.style.display = 'flex';
+        }
+
+        function closeImageViewer() {
+            imageViewerModal.style.display = 'none';
+        }
+
+        function updateImageTransform() {
+            fullImage.style.transform = `scale(${viewerScale}) translate(${viewerTranslate.x}px, ${viewerTranslate.y}px)`;
+        }
+
+        function zoomImage(delta) {
+            viewerScale = Math.max(0.1, Math.min(5, viewerScale + delta));
+            updateImageTransform();
+        }
+
+        function resetZoom() {
+            viewerScale = 1;
+            viewerTranslate = { x: 0, y: 0 };
+            updateImageTransform();
+        }
+
+        function handleWheelZoom(e) {
+            e.preventDefault();
+            const delta = e.deltaY > 0 ? -0.1 : 0.1;
+            zoomImage(delta);
+        }
+
+        // Image Pan Logic
+        fullImageWrapper.addEventListener('mousedown', (e) => {
+            if (viewerScale <= 1) return; // Only pan when zoomed in
+            isDraggingImage = true;
+            dragStart = { x: e.clientX - viewerTranslate.x * viewerScale, y: e.clientY - viewerTranslate.y * viewerScale };
+            fullImageWrapper.style.cursor = 'grabbing';
+        });
+
+        window.addEventListener('mousemove', (e) => {
+            if (!isDraggingImage) return;
+            e.preventDefault();
+            // Adjust logic to handle scale correctly for smooth panning
+            // translate is applied AFTER scale in CSS, effectively scaling the translation too visually if not careful.
+            // But standard `scale() translate()` order means translation is in local coordinates.
+            // Let's use simplified logic: translate pixels / scale
+            const newX = (e.clientX - dragStart.x) / viewerScale;
+            const newY = (e.clientY - dragStart.y) / viewerScale;
+            viewerTranslate = { x: newX, y: newY };
+            updateImageTransform();
+        });
+
+        window.addEventListener('mouseup', () => {
+            isDraggingImage = false;
+            fullImageWrapper.style.cursor = 'grab';
+        });
+
+
+        function renderImageGrid() {
+            gridContainer.innerHTML = '';
+            gridFilterList.innerHTML = '';
+
+            // Generate Filters (Sync with main hiddenLabels)
+            // Use sortedLabels to maintain order if available, else compute
+            let labelsToUse = sortedLabels.length > 0 ? sortedLabels : Object.keys(imagesData.reduce((acc, d) => { acc[d.label]=1; return acc; }, {})).sort();
+            
+            labelsToUse.forEach(label => {
+                const color = labelColors[label] || '#9ca3af';
+                const isHidden = hiddenLabels.has(label);
+                const count = imagesData.filter(d => d.label === label).length;
+
+                // Filter Item
+                const filterItem = document.createElement('div');
+                filterItem.className = `flex items-center p-2 hover:bg-gray-700 cursor-pointer rounded ${isHidden ? 'opacity-50' : ''}`;
+                filterItem.innerHTML = `
+                    <input type="checkbox" class="form-checkbox h-3 w-3 text-blue-600 rounded border-gray-600 bg-gray-700 mr-2" ${!isHidden ? 'checked' : ''}>
+                    <span class="w-2 h-2 rounded-full mr-2" style="background-color: ${color}"></span>
+                    <span class="text-xs text-gray-300 flex-grow truncate">${label}</span>
+                    <span class="text-xs text-gray-500">${count}</span>
+                `;
+                filterItem.onclick = (e) => {
+                    if(e.target.type !== 'checkbox') {
+                        filterItem.querySelector('input').click();
+                        return;
+                    }
+                    toggleLabelVisibility(label);
+                    renderImageGrid(); // Re-render grid content
+                };
+                gridFilterList.appendChild(filterItem);
+            });
+
+            // Group Visible Images
+            const grouped = {};
+            imagesData.forEach(d => {
+                if (hiddenLabels.has(d.label)) return;
+                if (!grouped[d.label]) grouped[d.label] = [];
+                grouped[d.label].push(d);
+            });
+
+            // Render Grid Sections
+            labelsToUse.forEach(label => {
+                if (hiddenLabels.has(label)) return;
+                const items = grouped[label];
+                if (!items || items.length === 0) return;
+
+                const color = labelColors[label] || '#9ca3af';
+
+                const section = document.createElement('div');
+                section.className = 'grid-section';
+                section.innerHTML = `
+                    <div class="grid-section-header">
+                        <span class="w-3 h-3 rounded-full" style="background-color: ${color}"></span>
+                        <span>${label}</span>
+                        <span class="text-gray-600 ml-auto text-xs">${items.length} images</span>
+                    </div>
+                    <div class="image-grid"></div>
+                `;
+                
+                const grid = section.querySelector('.image-grid');
+                
+                // Add items to grid
+                // Optimization: Could implement lazy loading here for very large datasets
+                items.forEach(item => {
+                    const div = document.createElement('div');
+                    div.className = 'grid-item';
+                    div.title = item.name;
+                    
+                    const img = document.createElement('img');
+                    if(item.imgUrl) {
+                        img.src = item.imgUrl;
+                    } else {
+                        // Fallback if URL revoked (though we try to keep them)
+                        const reader = new FileReader();
+                        reader.onload = (e) => img.src = e.target.result;
+                        reader.readAsDataURL(item.file);
+                    }
+                    img.loading = "lazy";
+
+                    div.appendChild(img);
+                    div.innerHTML += `<div class="grid-item-label">${item.name}</div>`;
+                    
+                    div.onclick = (e) => {
+                        e.stopPropagation();
+                        openImageViewer(item); // Changed to open Viewer
+                    };
+
+                    grid.appendChild(div);
+                });
+
+                gridContainer.appendChild(section);
+            });
+        }
 
         function renderModelGraph() {
             if (!modelHandler || !modelHandler.model || !modelHandler.model.layers) return;
@@ -1341,9 +1756,11 @@
             
             if (imagesData.length === 0) {
                 explorer.classList.add('hidden');
+                showGridBtn.disabled = true; // Disable Grid
                 return;
             }
             explorer.classList.remove('hidden');
+            showGridBtn.disabled = false; // Enable Grid
 
             const groups = {};
             imagesData.forEach(d => {
@@ -1479,7 +1896,15 @@
                 const parts = f.webkitRelativePath.split('/');
                 const label = parts.length >= 2 ? parts[parts.length - 2] : "root";
                 // Init coords cache
-                return { file: f, label: label, name: f.name, features: null, coords2D: null, coords3D: null };
+                return { 
+                    file: f, 
+                    label: label, 
+                    name: f.name, 
+                    imgUrl: URL.createObjectURL(f), // Create URL immediately
+                    features: null, 
+                    coords2D: null, 
+                    coords3D: null 
+                };
             });
 
             fileCount.innerText = `${imagesData.length} files`;
@@ -1627,6 +2052,7 @@
                         file: file,
                         label: label,
                         name: file.name,
+                        imgUrl: URL.createObjectURL(file), // Create URL immediately
                         features: null,
                         coords2D: null,
                         coords3D: null
