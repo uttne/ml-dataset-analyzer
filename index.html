@@ -19,8 +19,11 @@
     <!-- Plotly.js (For 3D Plot & Statistics) -->
     <script src="https://cdn.plot.ly/plotly-2.27.0.min.js"></script>
 
-    <!-- D3.js (For High Performance 2D Plot) -->
+    <!-- D3.js (For High Performance 2D Plot & Graph Vis) -->
     <script src="https://d3js.org/d3.v7.min.js"></script>
+
+    <!-- dagre (Graph Layout Engine) -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/dagre/0.8.5/dagre.min.js"></script>
     
     <style>
         @keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
@@ -182,12 +185,111 @@
             -webkit-appearance: none;
             border-radius: 50%;
         }
+
+        /* Model Graph Styles */
+        #graphModal {
+            display: none;
+            position: fixed;
+            inset: 0;
+            background-color: rgba(0, 0, 0, 0.8);
+            z-index: 50;
+            justify-content: center;
+            align-items: center;
+            backdrop-filter: blur(2px);
+        }
+        #graphSvgContainer {
+            background-color: #111827;
+            border-radius: 8px;
+            border: 1px solid #374151;
+            width: 90vw;
+            height: 90vh;
+            overflow: hidden;
+            position: relative;
+        }
+        #graphMinimap {
+            position: absolute;
+            bottom: 20px;
+            right: 20px;
+            width: 200px;
+            height: 150px;
+            background-color: rgba(17, 24, 39, 0.8);
+            border: 1px solid #4b5563;
+            border-radius: 4px;
+            overflow: hidden;
+            pointer-events: none; /* Display only */
+            z-index: 10;
+        }
+        /* Minimap elements */
+        #graphMinimap svg {
+            width: 100%;
+            height: 100%;
+        }
+        .view-finder {
+            fill: rgba(96, 165, 250, 0.1); /* Blue-400 with opacity */
+            stroke: #60a5fa;
+            stroke-width: 2px;
+        }
+        
+        .node rect {
+            stroke: #4b5563;
+            fill: #1f2937;
+            stroke-width: 1.5px;
+            transition: all 0.2s;
+        }
+        .node.selected rect {
+            stroke: #3b82f6;
+            fill: #1e3a8a;
+            stroke-width: 3px;
+        }
+        .node text {
+            fill: #f3f4f6;
+            font-size: 12px;
+            font-family: monospace;
+            pointer-events: none;
+        }
+        .edgePath path {
+            stroke: #9ca3af;
+            fill: none;
+            stroke-width: 1.5px;
+        }
+        .edgePath marker path {
+            fill: #9ca3af;
+        }
+        /* Hover effect for nodes */
+        .node:hover rect {
+            stroke: #60a5fa;
+            stroke-width: 2px;
+            fill: #374151;
+            filter: drop-shadow(0 0 4px rgba(96, 165, 250, 0.5));
+        }
     </style>
 </head>
 <body class="bg-gray-900 text-white h-screen font-sans flex flex-col overflow-hidden">
 
     <!-- Global Tooltip Element -->
     <div id="js-tooltip"></div>
+
+    <!-- Model Graph Modal -->
+    <div id="graphModal">
+        <div class="flex flex-col w-[90vw] h-[90vh]">
+            <div class="flex justify-between items-center bg-gray-800 p-3 rounded-t-lg border-b border-gray-700">
+                <h2 class="text-lg font-bold text-blue-400">Model Architecture</h2>
+                <div class="flex items-center gap-3">
+                    <button id="resetGraphBtn" class="bg-gray-700 hover:bg-gray-600 text-white text-xs px-3 py-1.5 rounded flex items-center gap-1 transition border border-gray-600">
+                        <svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"></path></svg>
+                        Reset View
+                    </button>
+                    <span class="text-xs text-gray-400 border-l border-gray-600 pl-3">Scroll: Zoom / Drag: Pan</span>
+                    <button id="closeGraphBtn" class="text-gray-400 hover:text-white transition ml-2">
+                        <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"></path></svg>
+                    </button>
+                </div>
+            </div>
+            <div id="graphSvgContainer" class="w-full h-full bg-[#111827] rounded-b-lg relative">
+                <div id="graphMinimap"></div>
+            </div>
+        </div>
+    </div>
 
     <!-- Header -->
     <header class="bg-gray-800 border-b border-gray-700 px-6 py-3 flex justify-between items-center shadow-md z-20 flex-shrink-0">
@@ -393,7 +495,13 @@
             <!-- Model Summary -->
             <div class="flex-grow flex flex-col border-t border-gray-700 min-h-0 bg-gray-850">
                 <div class="flex justify-between items-center px-4 py-2 flex-shrink-0 bg-gray-800">
-                    <span class="text-xs font-bold text-gray-400 uppercase">Layers</span>
+                    <div class="flex items-center gap-2">
+                        <span class="text-xs font-bold text-gray-400 uppercase">Layers</span>
+                        <!-- Show Graph Button -->
+                        <button id="showGraphBtn" class="text-blue-400 hover:text-blue-300 transition hidden has-tooltip" data-tooltip-title="View Model Architecture" data-tooltip-content="モデルの構造をノードグラフで視覚化します。">
+                            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 7h8m0 0v8m0-8l-8 8-4-4-6 6"></path></svg>
+                        </button>
+                    </div>
                     <span class="text-[10px] text-yellow-500" id="layerHint">Click row to set output</span>
                 </div>
                 <div class="flex-grow overflow-y-auto bg-gray-900 scrollbar-thin">
@@ -559,6 +667,24 @@
 
         const MAX_IMG_PX = 150;
 
+        // Layer Descriptions
+        const LAYER_DESCRIPTIONS = {
+            'InputLayer': 'モデルへの入力データを受け取る層です。',
+            'Conv2D': '画像から特徴（エッジやテクスチャなど）を抽出する畳み込み層です。',
+            'BatchNormalization': '学習を安定化・高速化させるための正規化層です。',
+            'ReLU': '非線形性を導入する活性化関数です。負の値を0にします。',
+            'MaxPooling2D': '特徴マップを縮小し、重要な特徴を残すプーリング層です。',
+            'GlobalAveragePooling2D': '特徴マップ全体を平均化して、ベクトルに変換する層です。',
+            'Dense': '全結合層。特徴量を組み合わせて最終的な判断を行います。',
+            'Add': '入力を要素ごとに加算する層です（ResNetのスキップ接続など）。',
+            'ZeroPadding2D': '画像の周囲に0を追加してサイズを調整する層です。',
+            'DepthwiseConv2D': 'チャンネルごとに独立して畳み込みを行う、軽量な畳み込み層です。',
+            'Concatenate': '複数の入力を結合して一つにする層です。',
+            'Dropout': '過学習を防ぐために、ランダムに入力を無効化する層です。',
+            'Flatten': '多次元のデータを1次元のベクトルに平坦化する層です。',
+            'Softmax': '出力を確率（合計が1になるように）に変換する活性化関数です。'
+        };
+
         // --- DOM Elements ---
         const fileInput = document.getElementById('fileInput');
         const demoBtn = document.getElementById('demoBtn'); 
@@ -579,6 +705,13 @@
         
         const useFixedSeedCheckbox = document.getElementById('useFixedSeed');
         const seedValueInput = document.getElementById('seedValue');
+
+        // Graph DOM Elements
+        const showGraphBtn = document.getElementById('showGraphBtn');
+        const graphModal = document.getElementById('graphModal');
+        const closeGraphBtn = document.getElementById('closeGraphBtn');
+        const graphSvgContainer = document.getElementById('graphSvgContainer');
+        const resetGraphBtn = document.getElementById('resetGraphBtn');
 
         // Generation Parameters
         const paramColorVar = document.getElementById('paramColorVar');
@@ -735,6 +868,218 @@
              renderPlot();
         });
 
+        // --- Graph Modal Logic ---
+        showGraphBtn.addEventListener('click', () => {
+            graphModal.style.display = 'flex';
+            renderModelGraph();
+        });
+        closeGraphBtn.addEventListener('click', () => {
+            graphModal.style.display = 'none';
+        });
+        graphModal.addEventListener('click', (e) => {
+            if(e.target === graphModal) graphModal.style.display = 'none';
+        });
+
+        let graphZoom = null; 
+        let graphInitialTransform = null; 
+        let graphSvgSelection = null;
+
+        resetGraphBtn.addEventListener('click', () => {
+            if (graphZoom && graphInitialTransform && graphSvgSelection) {
+                graphSvgSelection.transition().duration(750).call(graphZoom.transform, graphInitialTransform);
+            }
+        });
+
+        function renderModelGraph() {
+            if (!modelHandler || !modelHandler.model || !modelHandler.model.layers) return;
+            
+            // Get Data
+            const { nodes, edges } = modelHandler.getGraphData();
+            if (nodes.length === 0) return;
+
+            graphSvgContainer.innerHTML = '<div id="graphMinimap"></div>'; 
+
+            // Create dagre graph
+            const g = new dagre.graphlib.Graph();
+            g.setGraph({ rankdir: 'TB', nodesep: 30, ranksep: 50 });
+            g.setDefaultEdgeLabel(function() { return {}; });
+
+            nodes.forEach(node => {
+                const label = `${node.name}\n(${node.type})\n${node.shape}`;
+                g.setNode(node.id, { label: label, width: 180, height: 60, 
+                    fullType: node.type,
+                    fullShape: node.shape,
+                    fullName: node.name
+                });
+            });
+
+            edges.forEach(edge => {
+                g.setEdge(edge.from, edge.to);
+            });
+
+            dagre.layout(g);
+
+            // Draw with D3
+            const width = graphSvgContainer.clientWidth;
+            const height = graphSvgContainer.clientHeight;
+            
+            graphSvgSelection = d3.select("#graphSvgContainer").append("svg")
+                .attr("width", "100%")
+                .attr("height", "100%")
+                .attr("viewBox", [0, 0, width, height]);
+            
+            const svg = graphSvgSelection;
+            const inner = svg.append("g");
+
+            // Minimap Setup
+            const minimapSvg = d3.select("#graphMinimap").append("svg")
+                .attr("width", "100%")
+                .attr("height", "100%");
+            
+            const minimapInner = minimapSvg.append("g");
+            const viewFinder = minimapSvg.append("rect")
+                .attr("class", "view-finder")
+                .attr("fill", "transparent")
+                .attr("stroke", "#60a5fa")
+                .attr("stroke-width", "2");
+
+            // Zoom Behavior
+            const zoom = d3.zoom().on("zoom", (event) => {
+                inner.attr("transform", event.transform);
+                
+                const t = event.transform;
+                const k = t.k;
+                viewFinder
+                    .attr("x", -t.x / k)
+                    .attr("y", -t.y / k)
+                    .attr("width", width / k)
+                    .attr("height", height / k)
+                    .attr("stroke-width", 4 / (1/ (Math.max(g.graph().width, g.graph().height) / 200) ) );
+            });
+            
+            svg.call(zoom);
+            graphZoom = zoom;
+
+            // Define arrow marker
+            svg.append("defs").append("marker")
+                .attr("id", "arrowhead")
+                .attr("viewBox", "0 0 10 10")
+                .attr("refX", 9)
+                .attr("refY", 5)
+                .attr("markerWidth", 6)
+                .attr("markerHeight", 6)
+                .attr("orient", "auto")
+                .append("path")
+                .attr("d", "M 0 0 L 10 5 L 0 10 z")
+                .style("fill", "#6b7280");
+
+            // Draw Edges (Main)
+            const line = d3.line()
+                .x(d => d.x)
+                .y(d => d.y)
+                .curve(d3.curveBasis);
+
+            g.edges().forEach(e => {
+                const edge = g.edge(e);
+                inner.append("path")
+                    .attr("d", line(edge.points))
+                    .attr("class", "edgePath")
+                    .style("fill", "none")
+                    .style("stroke", "#6b7280")
+                    .style("stroke-width", "1.5px")
+                    .attr("marker-end", "url(#arrowhead)");
+                
+                // Minimap Edge
+                minimapInner.append("path")
+                      .attr("d", line(edge.points))
+                      .style("fill", "none")
+                      .style("stroke", "#4b5563")
+                      .style("stroke-width", "4px");
+            });
+
+            // Draw Nodes
+            g.nodes().forEach(n => {
+                const node = g.node(n);
+                const desc = LAYER_DESCRIPTIONS[node.fullType] || '詳細情報はありません。';
+
+                // Main Graph Node
+                const group = inner.append("g")
+                    .attr("class", "node " + (n === modelHandler.layerName ? "selected" : ""))
+                    .attr("transform", `translate(${node.x}, ${node.y})`)
+                    .style("cursor", "pointer")
+                    .on("click", () => {
+                        modelHandler.selectLayer(n, null); 
+                        graphModal.style.display = 'none';
+                    })
+                    .on("mouseover", (event) => {
+                        jsTooltip.innerHTML = `
+                            <div class="font-bold text-blue-300 mb-1 border-b border-gray-700 pb-1">${node.fullName}</div>
+                            <div class="mb-1"><span class="text-gray-400">Type:</span> ${node.fullType}</div>
+                            <div class="mb-1"><span class="text-gray-400">Output:</span> <span class="font-mono text-yellow-500">${node.fullShape}</span></div>
+                            <div class="text-gray-400 mt-2 text-[11px] border-t border-gray-700 pt-1 leading-relaxed">${desc}</div>
+                        `;
+                        jsTooltip.style.display = 'block';
+                    })
+                    .on("mousemove", (event) => {
+                        const x = event.clientX + 15;
+                        const y = event.clientY + 15;
+                        const rect = jsTooltip.getBoundingClientRect();
+                        const winW = window.innerWidth;
+                        const winH = window.innerHeight;
+                        let finalX = x;
+                        let finalY = y;
+                        if (x + rect.width > winW) finalX = x - rect.width - 20;
+                        if (y + rect.height > winH) finalY = y - rect.height - 20;
+                        jsTooltip.style.left = finalX + 'px';
+                        jsTooltip.style.top = finalY + 'px';
+                    })
+                    .on("mouseout", () => {
+                        jsTooltip.style.display = 'none';
+                    });
+
+                group.append("rect")
+                    .attr("x", -node.width / 2)
+                    .attr("y", -node.height / 2)
+                    .attr("width", node.width)
+                    .attr("height", node.height)
+                    .attr("rx", 6)
+                    .attr("ry", 6);
+
+                const lines = node.label.split('\n');
+                lines.forEach((line, i) => {
+                    group.append("text")
+                        .attr("dy", (i - (lines.length - 1) / 2) * 1.2 + "em")
+                        .attr("text-anchor", "middle")
+                        .text(line)
+                        .style("font-weight", i===0 ? "bold" : "normal")
+                        .style("fill", i===0 ? "#60a5fa" : "#f3f4f6"); 
+                });
+
+                // Minimap Node
+                minimapInner.append("rect")
+                    .attr("x", node.x - node.width / 2)
+                    .attr("y", node.y - node.height / 2)
+                    .attr("width", node.width)
+                    .attr("height", node.height)
+                    .attr("fill", n === modelHandler.layerName ? "#3b82f6" : "#4b5563");
+            });
+
+            // Initial Scale to fit
+            const graphWidth = g.graph().width;
+            const graphHeight = g.graph().height;
+            const scale = Math.min(width / graphWidth, height / graphHeight) * 0.9;
+            const xCenter = (width - graphWidth * scale) / 2;
+            const yCenter = (height - graphHeight * scale) / 2;
+            
+            const initialTransform = d3.zoomIdentity.translate(xCenter, yCenter).scale(scale);
+            graphInitialTransform = initialTransform;
+            svg.call(zoom.transform, initialTransform);
+
+            // Setup Minimap ViewBox
+            const padding = 50;
+            minimapSvg.attr("viewBox", `${-padding} ${-padding} ${graphWidth + padding*2} ${graphHeight + padding*2}`);
+        }
+
         // --- Model Handler Logic ---
         class ModelHandler {
             constructor() {
@@ -742,6 +1087,37 @@
                 this.subModel = null;
                 this.type = 'custom_zip';
                 this.layerName = null;
+            }
+
+            // Get Node/Edge data for visualization
+            getGraphData() {
+                if (!this.model || !this.model.layers) return { nodes: [], edges: [] };
+                
+                const nodes = [];
+                const edges = [];
+
+                this.model.layers.forEach(layer => {
+                    let shape = "N/A";
+                    if (layer.outputShape) {
+                        shape = JSON.stringify(layer.outputShape).replace(/null/g, "?");
+                    }
+                    nodes.push({
+                        id: layer.name,
+                        name: layer.name,
+                        type: layer.getClassName(),
+                        shape: shape
+                    });
+
+                    // Inbound Nodes Logic for TFJS Layers
+                    if (layer.inboundNodes && layer.inboundNodes.length > 0) {
+                        layer.inboundNodes.forEach(node => {
+                             node.inboundLayers.forEach(inLayer => {
+                                 edges.push({ from: inLayer.name, to: layer.name });
+                             });
+                        });
+                    }
+                });
+                return { nodes, edges };
             }
 
             async load(type, file=null) {
@@ -849,8 +1225,11 @@
 
             renderSummary(isLayers) {
                 const tbody = document.getElementById('modelSummaryBody');
+                const graphBtn = document.getElementById('showGraphBtn');
+                
                 tbody.innerHTML = '';
                 document.getElementById('layerHint').style.display = isLayers ? 'block' : 'none';
+                graphBtn.style.display = isLayers ? 'block' : 'none';
 
                 if (!isLayers) {
                     tbody.innerHTML = `<tr><td class="p-2 text-gray-400 text-xs">GraphModel loaded.<br>Internal layers hidden.<br>Output: Feature Vector</td></tr>`;
@@ -860,6 +1239,7 @@
                 this.model.layers.forEach(layer => {
                     const tr = document.createElement('tr');
                     tr.className = 'border-b border-gray-800 hover:bg-gray-800 layer-row-clickable transition-colors';
+                    tr.dataset.layer = layer.name; // Store layer name for selection logic
                     tr.innerHTML = `
                         <td class="p-2">
                             <div class="font-bold text-blue-300 truncate w-32" title="${layer.name}">${layer.name}</div>
@@ -880,13 +1260,23 @@
                 if (this.layerName === name) {
                     this.layerName = null;
                     this.subModel = null;
-                    trElement.classList.remove('layer-row-selected');
+                    if(trElement) trElement.classList.remove('layer-row-selected');
                 } else {
                     document.querySelectorAll('.layer-row-selected').forEach(el => el.classList.remove('layer-row-selected'));
                     this.layerName = name;
                     const layer = this.model.getLayer(name);
                     this.subModel = tf.model({ inputs: this.model.inputs, outputs: layer.output });
-                    trElement.classList.add('layer-row-selected');
+                    
+                    // Highlight row if passed, or find it
+                    if (trElement) {
+                        trElement.classList.add('layer-row-selected');
+                    } else {
+                        const row = document.querySelector(`tr[data-layer="${name}"]`);
+                        if (row) {
+                            row.classList.add('layer-row-selected');
+                            row.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                        }
+                    }
                 }
                 
                 if (typeof imagesData !== 'undefined') {
