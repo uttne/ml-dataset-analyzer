@@ -172,6 +172,16 @@
             border-bottom: 1px dotted #6b7280;
             cursor: help;
         }
+        
+        /* Slider Custom Style */
+        .range-xs::-webkit-slider-thumb {
+            width: 12px;
+            height: 12px;
+            background: #3b82f6;
+            cursor: pointer;
+            -webkit-appearance: none;
+            border-radius: 50%;
+        }
     </style>
 </head>
 <body class="bg-gray-900 text-white h-screen font-sans flex flex-col overflow-hidden">
@@ -204,15 +214,117 @@
                 
                 <!-- 1. Data Input -->
                 <div class="space-y-2">
-                    <label class="text-xs font-bold text-gray-400 uppercase tracking-wider has-tooltip" data-tooltip-title="Dataset Selection" data-tooltip-content="画像ファイルを含むフォルダを選択してください。サブフォルダ名が自動的にクラスラベルとして使用されます。">1. Dataset</label>
-                    <div class="flex items-center gap-2">
-                        <label class="flex-grow cursor-pointer bg-blue-600 hover:bg-blue-700 text-white py-2 px-3 rounded text-sm text-center shadow transition">
-                            <span>Select Folder</span>
-                            <input type="file" id="fileInput" webkitdirectory directory multiple class="hidden" accept="image/*">
-                        </label>
-                        <span id="fileCount" class="text-xs text-gray-400 whitespace-nowrap">0 files</span>
+                    <label class="text-xs font-bold text-gray-400 uppercase tracking-wider has-tooltip" data-tooltip-title="Dataset Selection" data-tooltip-content="画像ファイルを含むフォルダを選択するか、デモ用データを生成します。">1. Dataset</label>
+                    <div class="flex flex-col gap-2">
+                        <!-- Local File Input -->
+                        <div class="flex items-center gap-2">
+                            <label class="flex-grow cursor-pointer bg-blue-600 hover:bg-blue-700 text-white py-2 px-3 rounded text-sm text-center shadow transition flex items-center justify-center gap-2">
+                                <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 7v10a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-6l-2-2H5a2 2 0 00-2 2z"></path></svg>
+                                <span>Select Folder</span>
+                                <input type="file" id="fileInput" webkitdirectory directory multiple class="hidden" accept="image/*">
+                            </label>
+                        </div>
+                        
+                        <!-- Demo Gen Button -->
+                        <button id="demoBtn" class="w-full bg-indigo-600 hover:bg-indigo-700 border border-indigo-500 text-white py-1.5 px-3 rounded text-xs transition flex items-center justify-center gap-2 font-bold shadow-md">
+                            <svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19.428 15.428a2 2 0 00-1.022-.547l-2.384-.477a6 6 0 00-3.86.517l-.318.158a6 6 0 01-3.86.517L6.05 15.21a2 2 0 00-1.806.547M8 4h8l-1 1v5.172a2 2 0 00.586 1.414l5 5c1.26 1.26.367 3.414-1.415 3.414H4.828c-1.782 0-2.674-2.154-1.414-3.414l5-5A2 2 0 009 10.172V5L8 4z"></path></svg>
+                            Generate Demo Dataset
+                        </button>
+                        
+                        <!-- Demo Settings Accordion -->
+                        <details class="bg-gray-750 border border-gray-700 rounded overflow-hidden group">
+                            <summary class="cursor-pointer p-2 text-[10px] text-gray-400 font-bold uppercase select-none flex justify-between items-center hover:bg-gray-700">
+                                Demo Generator Settings
+                                <svg class="w-3 h-3 transition-transform group-open:rotate-180" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"></path></svg>
+                            </summary>
+                            <div class="p-2 space-y-3 bg-gray-900 border-t border-gray-700">
+                                <!-- (Settings kept same as before) -->
+                                <!-- Mode Select -->
+                                <div>
+                                    <label class="text-[10px] text-gray-400 block mb-1">Pattern Mode</label>
+                                    <select id="genMode" class="w-full bg-gray-800 border border-gray-600 rounded px-1 py-1 text-xs text-white">
+                                        <option value="shapes">Simple Shapes (Circle/Square/Triangle)</option>
+                                        <option value="bottles" selected>Anomaly Inspection (Bottles)</option>
+                                    </select>
+                                </div>
+                                <!-- Sliders -->
+                                <div class="space-y-2">
+                                    <div class="flex flex-col">
+                                        <div class="flex justify-between text-[10px] text-gray-400">
+                                            <span>Color Var.</span>
+                                            <span id="valColorVar">30</span>
+                                        </div>
+                                        <input type="range" id="paramColorVar" min="0" max="180" value="30" class="range-xs w-full h-1 bg-gray-700 rounded-lg appearance-none">
+                                    </div>
+                                    <div class="flex flex-col">
+                                        <div class="flex justify-between text-[10px] text-gray-400">
+                                            <span>Brightness Var.</span>
+                                            <span id="valBrightness">20%</span>
+                                        </div>
+                                        <input type="range" id="paramBrightness" min="0" max="100" value="20" class="range-xs w-full h-1 bg-gray-700 rounded-lg appearance-none">
+                                    </div>
+                                    <div class="flex flex-col">
+                                        <div class="flex justify-between text-[10px] text-gray-400">
+                                            <span>Contrast Var.</span>
+                                            <span id="valContrast">20%</span>
+                                        </div>
+                                        <input type="range" id="paramContrast" min="0" max="100" value="20" class="range-xs w-full h-1 bg-gray-700 rounded-lg appearance-none">
+                                    </div>
+                                    <div class="flex flex-col">
+                                        <div class="flex justify-between text-[10px] text-gray-400">
+                                            <span>Shift (px)</span>
+                                            <span id="valShift">10</span>
+                                        </div>
+                                        <input type="range" id="paramShift" min="0" max="50" value="10" class="range-xs w-full h-1 bg-gray-700 rounded-lg appearance-none">
+                                    </div>
+                                    <div class="flex flex-col">
+                                        <div class="flex justify-between text-[10px] text-gray-400">
+                                            <span>Rotate (deg)</span>
+                                            <span id="valRotate">15</span>
+                                        </div>
+                                        <input type="range" id="paramRotate" min="0" max="180" value="15" class="range-xs w-full h-1 bg-gray-700 rounded-lg appearance-none">
+                                    </div>
+                                    <div class="flex flex-col">
+                                        <div class="flex justify-between text-[10px] text-gray-400">
+                                            <span>Noise Level</span>
+                                            <span id="valNoise">10</span>
+                                        </div>
+                                        <input type="range" id="paramNoise" min="0" max="100" value="10" class="range-xs w-full h-1 bg-gray-700 rounded-lg appearance-none">
+                                    </div>
+                                    <div class="flex flex-col">
+                                        <div class="flex justify-between text-[10px] text-gray-400">
+                                            <span>Anomaly Level</span>
+                                            <span id="valAnomaly">50</span>
+                                        </div>
+                                        <input type="range" id="paramAnomaly" min="0" max="100" value="50" class="range-xs w-full h-1 bg-gray-700 rounded-lg appearance-none">
+                                    </div>
+                                </div>
+                                <!-- Seed -->
+                                <div class="flex items-center gap-2 pt-1 border-t border-gray-800">
+                                    <label class="flex items-center cursor-pointer">
+                                        <input type="checkbox" id="useGenSeed" checked class="form-checkbox h-3 w-3 text-indigo-500 rounded border-gray-600 bg-gray-700">
+                                        <span class="ml-1 text-[10px] text-gray-400">Fix Gen Seed</span>
+                                    </label>
+                                    <input type="number" id="genSeedValue" value="999" class="w-12 bg-gray-800 border border-gray-600 rounded px-1 py-0.5 text-[10px] text-right">
+                                </div>
+                            </div>
+                        </details>
+
+                        <div class="flex justify-between items-center mt-1">
+                            <span id="fileCount" class="text-xs text-gray-400">0 files</span>
+                        </div>
                     </div>
-                    <p class="text-[10px] text-gray-500">Subfolder names will be used as labels.</p>
+                    
+                    <!-- Dataset Explorer -->
+                    <div id="datasetExplorer" class="mt-2 border-t border-gray-700 pt-2 hidden">
+                        <div class="flex justify-between items-center mb-1">
+                             <label class="text-[10px] text-gray-400 font-bold uppercase has-tooltip" data-tooltip-title="Dataset Explorer" data-tooltip-content="カテゴリ（フォルダ名）ごとのファイル一覧です。<br>チェックボックスで表示/非表示を切り替えられます。<br>▶をクリックするとファイル名を確認できます。">Explorer & Filters</label>
+                             <button id="toggleAllBtn" class="text-[9px] text-blue-400 hover:text-blue-300">Show All</button>
+                        </div>
+                        <div id="categoryList" class="max-h-40 overflow-y-auto bg-gray-900 rounded border border-gray-700 text-[10px]">
+                            <!-- Categories will be injected here -->
+                        </div>
+                    </div>
                 </div>
 
                 <!-- 2. Model Settings -->
@@ -244,12 +356,12 @@
                         </div>
                     </div>
 
-                    <!-- Random Seed Control -->
+                    <!-- Random Seed Control (t-SNE) -->
                     <div class="flex items-center gap-2 mt-1">
                         <label class="flex items-center cursor-pointer">
                             <!-- Default Checked -->
                             <input type="checkbox" id="useFixedSeed" checked class="form-checkbox h-3 w-3 text-blue-600 rounded border-gray-600 bg-gray-700 focus:ring-0 focus:ring-offset-0">
-                            <span class="ml-1 text-[10px] text-gray-400 has-tooltip" data-tooltip-title="Fix Random Seed" data-tooltip-content="t-SNEの計算結果を固定します。<br>有効にすると、同じデータ・設定であれば常に同じ配置が再現されます。">Fix Seed</span>
+                            <span class="ml-1 text-[10px] text-gray-400 has-tooltip" data-tooltip-title="Fix Random Seed" data-tooltip-content="t-SNEの計算結果を固定します。<br>有効にすると、同じデータ・設定であれば常に同じ配置が再現されます。">Fix t-SNE Seed</span>
                         </label>
                         <!-- Default Enabled -->
                         <input type="number" id="seedValue" value="12345" class="w-16 bg-gray-900 border border-gray-600 rounded px-1 py-0.5 text-[10px]">
@@ -449,6 +561,7 @@
 
         // --- DOM Elements ---
         const fileInput = document.getElementById('fileInput');
+        const demoBtn = document.getElementById('demoBtn'); 
         const fileCount = document.getElementById('fileCount');
         const runBtn = document.getElementById('runBtn');
         const exportBtn = document.getElementById('exportBtn');
@@ -462,9 +575,33 @@
         const showImagesToggle = document.getElementById('showImagesToggle');
         const tooltip = document.getElementById('d3-tooltip');
         const resetViewBtn = document.getElementById('resetViewBtn');
+        const toggleAllBtn = document.getElementById('toggleAllBtn');
         
         const useFixedSeedCheckbox = document.getElementById('useFixedSeed');
         const seedValueInput = document.getElementById('seedValue');
+
+        // Generation Parameters
+        const paramColorVar = document.getElementById('paramColorVar');
+        const paramBrightness = document.getElementById('paramBrightness');
+        const paramContrast = document.getElementById('paramContrast');
+        const paramShift = document.getElementById('paramShift');
+        const paramRotate = document.getElementById('paramRotate');
+        const paramNoise = document.getElementById('paramNoise');
+        const paramAnomaly = document.getElementById('paramAnomaly');
+        
+        // Update labels for sliders
+        function updateSliderLabels() {
+            document.getElementById('valColorVar').innerText = paramColorVar.value;
+            document.getElementById('valBrightness').innerText = paramBrightness.value + '%';
+            document.getElementById('valContrast').innerText = paramContrast.value + '%';
+            document.getElementById('valShift').innerText = paramShift.value + 'px';
+            document.getElementById('valRotate').innerText = paramRotate.value + '°';
+            document.getElementById('valNoise').innerText = paramNoise.value;
+            document.getElementById('valAnomaly').innerText = paramAnomaly.value;
+        }
+        [paramColorVar, paramBrightness, paramContrast, paramShift, paramRotate, paramNoise, paramAnomaly].forEach(el => {
+            el.addEventListener('input', updateSliderLabels);
+        });
 
         // --- Random Number Generator ---
         function mulberry32(a) {
@@ -476,6 +613,9 @@
             }
         }
         const originalMathRandom = Math.random;
+
+        // Generator Random
+        let genRandom = Math.random;
 
         useFixedSeedCheckbox.addEventListener('change', (e) => {
             seedValueInput.disabled = !e.target.checked;
@@ -803,9 +943,141 @@
 
         modelHandler = new ModelHandler();
 
+        // --- New Dataset List Logic ---
+        function renderDatasetList() {
+            const list = document.getElementById('categoryList');
+            const explorer = document.getElementById('datasetExplorer');
+            list.innerHTML = '';
+            
+            if (imagesData.length === 0) {
+                explorer.classList.add('hidden');
+                return;
+            }
+            explorer.classList.remove('hidden');
+
+            const groups = {};
+            imagesData.forEach(d => {
+                if (!groups[d.label]) groups[d.label] = [];
+                groups[d.label].push(d);
+            });
+
+            const sortedKeys = Object.keys(groups).sort();
+
+            sortedKeys.forEach(label => {
+                const files = groups[label];
+                const color = labelColors[label] || '#9ca3af';
+                
+                // Category Row
+                const catDiv = document.createElement('div');
+                catDiv.className = 'border-b border-gray-800 last:border-0';
+                
+                // Header
+                const header = document.createElement('div');
+                header.className = 'flex items-center px-2 py-1 bg-gray-800 hover:bg-gray-700 cursor-pointer group transition-colors';
+                
+                // Visibility Checkbox
+                const checkbox = document.createElement('input');
+                checkbox.type = 'checkbox';
+                checkbox.checked = !hiddenLabels.has(label);
+                checkbox.className = 'mr-2 form-checkbox h-3 w-3 text-blue-600 rounded border-gray-600 bg-gray-700 cursor-pointer';
+                checkbox.dataset.label = label; // Tag for updates
+                checkbox.onclick = (e) => {
+                    e.stopPropagation();
+                    toggleLabelVisibility(label);
+                };
+                
+                // Label Text
+                const labelSpan = document.createElement('span');
+                labelSpan.className = 'flex-grow font-bold truncate';
+                labelSpan.style.color = color;
+                labelSpan.innerText = `${label} (${files.length})`;
+                
+                // Expand/Collapse Icon
+                const icon = document.createElement('span');
+                icon.className = 'text-gray-500 transform transition-transform group-hover:text-gray-300';
+                icon.innerText = '▶'; 
+                icon.style.fontSize = '8px';
+                
+                header.appendChild(checkbox);
+                header.appendChild(labelSpan);
+                header.appendChild(icon);
+                
+                // File List Container (Hidden by default)
+                const fileList = document.createElement('div');
+                fileList.className = 'hidden pl-6 pr-2 py-1 space-y-0.5 bg-gray-850 border-t border-gray-800';
+                
+                // Toggle Logic
+                let expanded = false;
+                let rendered = false;
+                
+                header.onclick = (e) => {
+                    if (e.target === checkbox) return;
+                    expanded = !expanded;
+                    fileList.classList.toggle('hidden', !expanded);
+                    icon.style.transform = expanded ? 'rotate(90deg)' : 'rotate(0deg)';
+                    
+                    // Lazy render files
+                    if (expanded && !rendered) {
+                         files.forEach(f => {
+                             const fDiv = document.createElement('div');
+                             fDiv.className = 'truncate text-gray-500 hover:text-gray-300 flex justify-between items-center';
+                             fDiv.innerHTML = `<span title="${f.name}">${f.name}</span>`;
+                             fileList.appendChild(fDiv);
+                         });
+                         rendered = true;
+                    }
+                };
+
+                catDiv.appendChild(header);
+                catDiv.appendChild(fileList);
+                list.appendChild(catDiv);
+            });
+        }
+        
+        function toggleLabelVisibility(label) {
+            if (hiddenLabels.has(label)) {
+                hiddenLabels.delete(label);
+            } else {
+                hiddenLabels.add(label);
+            }
+            
+            // Sync Checkboxes in List
+            document.querySelectorAll('#categoryList input[type="checkbox"]').forEach(cb => {
+                if (cb.dataset.label === label) {
+                    cb.checked = !hiddenLabels.has(label);
+                }
+            });
+            
+            // Sync D3 Legend (if exists)
+            d3.selectAll('.legend-item').each(function() {
+                const el = d3.select(this);
+                if (el.attr('data-label') === label) {
+                    el.classed('inactive', hiddenLabels.has(label));
+                }
+            });
+
+            // Re-render plots
+            renderPlot();
+        }
+
+        toggleAllBtn.onclick = () => {
+            const allLabels = Object.keys(imagesData.reduce((acc, d) => { acc[d.label]=1; return acc; }, {}));
+            if (hiddenLabels.size > 0) {
+                // Show all
+                hiddenLabels.clear();
+            } else {
+                // Hide all
+                allLabels.forEach(l => hiddenLabels.add(l));
+            }
+            // Update UI
+            renderDatasetList(); // Simplest way to refresh all checks
+            renderPlot();
+        };
+
         // --- Main Logic ---
         
         fileInput.addEventListener('change', (e) => {
+            // Revoke old URLs
             imagesData.forEach(d => { if(d.imgUrl) URL.revokeObjectURL(d.imgUrl); });
             imagesData = [];
             hiddenLabels.clear();
@@ -816,14 +1088,295 @@
             imagesData = files.map(f => {
                 const parts = f.webkitRelativePath.split('/');
                 const label = parts.length >= 2 ? parts[parts.length - 2] : "root";
+                // Init coords cache
                 return { file: f, label: label, name: f.name, features: null, coords2D: null, coords3D: null };
             });
 
-            fileCount.innerText = `${imagesData.length} images`;
+            fileCount.innerText = `${imagesData.length} files`;
             document.getElementById('emptyState').style.display = 'flex';
             document.getElementById('plotDiv').innerHTML = ''; 
             checkReady();
+            renderDatasetList(); // Update List
         });
+
+        // --- Demo Dataset Generation (Enhanced) ---
+        demoBtn.addEventListener('click', async () => {
+            // Clear existing
+            imagesData.forEach(d => { if(d.imgUrl) URL.revokeObjectURL(d.imgUrl); });
+            imagesData = [];
+            hiddenLabels.clear();
+
+            setLoading(true, "Generating Dataset...", 0);
+            await new Promise(r => setTimeout(r, 50));
+
+            // Params
+            const mode = document.getElementById('genMode').value;
+            const seedFixed = document.getElementById('useGenSeed').checked;
+            const seedVal = parseInt(document.getElementById('genSeedValue').value) || 999;
+            
+            // Random Generator setup
+            genRandom = seedFixed ? mulberry32(seedVal) : Math.random;
+
+            // Augmentation Params (normalized 0-1 or specific range)
+            const params = {
+                colorVar: parseInt(paramColorVar.value),       // 0-180
+                brightness: parseInt(paramBrightness.value),   // 0-100%
+                contrast: parseInt(paramContrast.value),       // 0-100%
+                shift: parseInt(paramShift.value),             // 0-50 px
+                rotate: parseInt(paramRotate.value),           // 0-180 deg
+                noise: parseInt(paramNoise.value),             // 0-100
+                anomaly: parseInt(paramAnomaly.value)          // 0-100
+            };
+
+            // Normalized Factors (0.0 - 1.0) for controlling variations
+            // If these are 0, the variation added by genRandom() will be 0.
+            const factors = {
+                color: params.colorVar / 180,
+                brightness: params.brightness / 100,
+                contrast: params.contrast / 100,
+                shift: params.shift / 50,
+                rotate: params.rotate / 180,
+                noise: params.noise / 100,
+                anomaly: params.anomaly / 100
+            };
+
+            const size = 128;
+            const canvas = document.createElement('canvas');
+            canvas.width = size;
+            canvas.height = size;
+            const ctx = canvas.getContext('2d');
+
+            const newImages = [];
+            let classes = [];
+            
+            if (mode === 'shapes') {
+                classes = ['Circle', 'Square', 'Triangle'];
+            } else {
+                classes = ['Normal', 'Scratch', 'Stain'];
+            }
+            
+            const itemsPerClass = 20;
+
+            for (let cIndex = 0; cIndex < classes.length; cIndex++) {
+                const label = classes[cIndex];
+                for (let i = 0; i < itemsPerClass; i++) {
+                    
+                    // 1. Clear & Background
+                    ctx.filter = 'none';
+                    ctx.setTransform(1, 0, 0, 1, 0, 0); // Reset transform
+                    
+                    // Dark background with variation controlled by color factor
+                    // If factor is 0, randomness is 0 -> fixed background
+                    const bgBase = 30;
+                    const bgR = bgBase + (genRandom() * 20 * factors.color);
+                    const bgG = bgBase + (genRandom() * 20 * factors.color);
+                    const bgB = bgBase + (genRandom() * 30 * factors.color);
+                    ctx.fillStyle = `rgb(${bgR}, ${bgG}, ${bgB})`;
+                    ctx.fillRect(0, 0, size, size);
+
+                    // 2. Setup Augmentation (Shift/Rotate)
+                    // If params.shift/rotate are 0, these will be 0 -> No variation
+                    const shiftX = (genRandom() - 0.5) * 2 * params.shift;
+                    const shiftY = (genRandom() - 0.5) * 2 * params.shift;
+                    const rotRad = (genRandom() - 0.5) * 2 * (params.rotate * Math.PI / 180);
+
+                    ctx.translate(size/2 + shiftX, size/2 + shiftY);
+                    ctx.rotate(rotRad);
+                    ctx.translate(-size/2, -size/2);
+
+                    // 3. Draw Object
+                    if (mode === 'shapes') {
+                        drawShape(ctx, label, size, factors);
+                    } else {
+                        drawBottle(ctx, label, size, factors);
+                    }
+
+                    // 4. Reset Transform for Filters/Noise (Apply to whole image)
+                    ctx.setTransform(1, 0, 0, 1, 0, 0);
+
+                    // 5. Apply Image Filters (Brightness, Contrast, Hue)
+                    if (params.brightness > 0 || params.contrast > 0 || params.colorVar > 0) {
+                         const tempCanvas = document.createElement('canvas');
+                         tempCanvas.width = size; 
+                         tempCanvas.height = size;
+                         const tCtx = tempCanvas.getContext('2d');
+                         tCtx.drawImage(canvas, 0, 0);
+
+                         // Calculate random values based on factors
+                         // If factor is 0, the deviation from 100% or 0deg is 0.
+                         const bVal = 100 + (genRandom() - 0.5) * 2 * params.brightness; // %
+                         const cVal = 100 + (genRandom() - 0.5) * 2 * params.contrast;   // %
+                         const hVal = (genRandom() - 0.5) * 2 * params.colorVar;         // deg
+
+                         ctx.clearRect(0, 0, size, size);
+                         ctx.filter = `brightness(${bVal}%) contrast(${cVal}%) hue-rotate(${hVal}deg)`;
+                         ctx.drawImage(tempCanvas, 0, 0);
+                         ctx.filter = 'none';
+                    }
+
+                    // 6. Apply Noise (Pixel Manipulation)
+                    if (params.noise > 0) {
+                        const imgData = ctx.getImageData(0, 0, size, size);
+                        const data = imgData.data;
+                        const factor = params.noise * 2.55; 
+                        
+                        for (let p = 0; p < data.length; p += 4) {
+                            const noise = (genRandom() - 0.5) * factor;
+                            data[p] = Math.max(0, Math.min(255, data[p] + noise));
+                            data[p+1] = Math.max(0, Math.min(255, data[p+1] + noise));
+                            data[p+2] = Math.max(0, Math.min(255, data[p+2] + noise));
+                        }
+                        ctx.putImageData(imgData, 0, 0);
+                    }
+
+                    // Convert to File
+                    const blob = await new Promise(resolve => canvas.toBlob(resolve, 'image/jpeg', 0.9));
+                    const file = new File([blob], `${label}_${i}.jpg`, { type: 'image/jpeg' });
+
+                    newImages.push({
+                        file: file,
+                        label: label,
+                        name: file.name,
+                        features: null,
+                        coords2D: null,
+                        coords3D: null
+                    });
+                }
+            }
+
+            imagesData = newImages;
+            fileCount.innerText = `${imagesData.length} files (Gen)`;
+            
+            document.getElementById('emptyState').style.display = 'flex';
+            document.getElementById('plotDiv').innerHTML = '';
+            
+            setLoading(false);
+            checkReady();
+            renderDatasetList(); // Update List
+        });
+
+        function drawShape(ctx, label, size, factors) {
+            // Base Color with variation factor
+            const hueBase = 200; // Fixed base if factor is 0
+            const hue = Math.floor(hueBase + (genRandom() - 0.5) * 360 * factors.color);
+            ctx.fillStyle = `hsl(${hue}, 70%, 60%)`;
+            
+            const cx = size / 2;
+            const cy = size / 2;
+            const scale = 0.5; 
+            const r = (size / 2) * scale;
+
+            ctx.beginPath();
+            if (label === 'Circle') {
+                ctx.arc(cx, cy, r, 0, Math.PI * 2);
+            } else if (label === 'Square') {
+                ctx.fillRect(cx - r, cy - r, r*2, r*2);
+            } else if (label === 'Triangle') {
+                ctx.moveTo(cx, cy - r);
+                ctx.lineTo(cx + r * Math.sin(Math.PI/3), cy + r * Math.cos(Math.PI/3));
+                ctx.lineTo(cx - r * Math.sin(Math.PI/3), cy + r * Math.cos(Math.PI/3));
+                ctx.closePath();
+            }
+            ctx.fill();
+        }
+
+        function drawBottle(ctx, label, size, factors) {
+            const cx = size / 2;
+            const cy = size / 2;
+            
+            const w = size * 0.35;
+            const h = size * 0.6;
+            const neckW = w * 0.4;
+            const neckH = h * 0.25;
+            
+            // Bottle Color: Variation controlled by factors.color
+            // If color factor is 0, hue is fixed.
+            const baseHueVal = 200;
+            const hueVar = (genRandom() - 0.5) * 40 * factors.color;
+            const baseHue = baseHueVal + hueVar; 
+            
+            ctx.fillStyle = `hsla(${baseHue}, 70%, 60%, 0.8)`;
+            ctx.strokeStyle = `hsla(${baseHue}, 80%, 40%, 1.0)`;
+            ctx.lineWidth = 2;
+
+            // Draw Body
+            ctx.beginPath();
+            ctx.rect(cx - neckW/2, cy - h/2, neckW, neckH); // Neck
+            ctx.moveTo(cx - neckW/2, cy - h/2 + neckH);
+            ctx.lineTo(cx - w/2, cy - h/2 + neckH + 10); // Shoulder
+            ctx.lineTo(cx - w/2, cy + h/2 - 5); // Body Side
+            ctx.quadraticCurveTo(cx - w/2, cy + h/2, cx - w/2 + 5, cy + h/2); // Bottom Left
+            ctx.lineTo(cx + w/2 - 5, cy + h/2); // Bottom
+            ctx.quadraticCurveTo(cx + w/2, cy + h/2, cx + w/2, cy + h/2 - 5); // Bottom Right
+            ctx.lineTo(cx + w/2, cy - h/2 + neckH + 10); // Body Side
+            ctx.lineTo(cx + neckW/2, cy - h/2 + neckH); // Shoulder
+            
+            ctx.fill();
+            ctx.stroke();
+
+            // Liquid Level: Variation controlled by factors.shift
+            // If shift factor is 0, level is fixed at 0.1
+            const levelVar = genRandom() * 0.2 * factors.shift; 
+            const level = 0.1 + levelVar;
+            
+            ctx.fillStyle = `hsla(${baseHue}, 75%, 50%, 0.5)`;
+            ctx.beginPath();
+            const ly = cy - h/2 + h * level;
+            ctx.rect(cx - w/2 + 2, ly, w - 4, (cy + h/2) - ly - 2);
+            ctx.fill();
+
+            // Cap
+            ctx.fillStyle = "#333";
+            ctx.fillRect(cx - neckW/2 - 2, cy - h/2 - 5, neckW + 4, 10);
+
+            // --- Anomalies ---
+            // Controlled by factors.anomaly
+            if (label === 'Scratch') {
+                ctx.strokeStyle = "rgba(255, 255, 255, 0.7)";
+                ctx.lineWidth = 1.5;
+                
+                const numScratches = 1 + Math.floor(genRandom() * 2 * factors.anomaly);
+                
+                for(let k=0; k<numScratches; k++) {
+                    ctx.beginPath();
+                    const fixedOffsetX = (k === 0) ? 0 : (w * 0.2); 
+                    const fixedOffsetY = (k === 0) ? 0 : (h * 0.2);
+                    
+                    const offsetX = (genRandom() - 0.5) * w * 0.6 * factors.anomaly;
+                    const offsetY = (genRandom() - 0.5) * h * 0.4 * factors.anomaly;
+                    
+                    const sx = cx + fixedOffsetX + offsetX;
+                    const sy = cy + fixedOffsetY + offsetY;
+                    
+                    const len = 20 + (genRandom() - 0.5) * 20 * factors.anomaly; 
+                    const scratchAngle = (factors.anomaly > 0) ? genRandom() * Math.PI : 0; 
+
+                    ctx.moveTo(sx, sy);
+                    ctx.lineTo(sx + Math.cos(scratchAngle)*len, sy + Math.sin(scratchAngle)*len);
+                    ctx.stroke();
+                }
+            } else if (label === 'Stain') {
+                ctx.fillStyle = "rgba(50, 40, 30, 0.6)";
+                
+                const numStains = 1 + Math.floor(genRandom() * 2 * factors.anomaly);
+                for(let k=0; k<numStains; k++) {
+                    const fixedOffsetX = (k === 0) ? 0 : -(w * 0.2);
+                    
+                    const offsetX = (genRandom() - 0.5) * w * 0.6 * factors.anomaly;
+                    const offsetY = (genRandom() - 0.5) * h * 0.4 * factors.anomaly;
+                    
+                    const sx = cx + fixedOffsetX + offsetX;
+                    const sy = cy + offsetY;
+                    
+                    const radius = 5 + genRandom() * 5 * factors.anomaly;
+                    
+                    ctx.beginPath();
+                    ctx.arc(sx, sy, radius, 0, Math.PI * 2);
+                    ctx.fill();
+                }
+            }
+        }
+
 
         const modelSelect = document.getElementById('modelSelect');
         const customInput = document.getElementById('customModelInputArea');
@@ -892,6 +1445,7 @@
                 calculateStats();
                 await runTSNE();
                 renderPlot();
+                renderDatasetList(); // Update List (Apply colors)
                 exportBtn.disabled = false;
             } catch (e) {
                 console.error(e);
@@ -1044,15 +1598,12 @@
                     .attr("data-tooltip-content", `Click to toggle visibility for ${label}`)
                     .on("click", function() {
                         const l = d3.select(this).attr("data-label");
-                        if (hiddenLabels.has(l)) {
-                            hiddenLabels.delete(l);
-                            d3.select(this).classed("inactive", false);
-                        } else {
-                            hiddenLabels.add(l);
-                            d3.select(this).classed("inactive", true);
-                        }
-                        draw(currentTransform.rescaleX(xScale), currentTransform.rescaleY(yScale));
+                        toggleLabelVisibility(l);
                     });
+                
+                if (hiddenLabels.has(label)) {
+                    item.classed('inactive', true);
+                }
 
                 item.append("div")
                     .attr("class", "legend-color")
@@ -1314,7 +1865,8 @@
                     name: label,
                     text: g.ids.map(id => imagesData[id].name),
                     customdata: g.ids,
-                    marker: { size: 4, opacity: 0.8, color: labelColors[label] }
+                    marker: { size: 4, opacity: 0.8, color: labelColors[label] },
+                    visible: hiddenLabels.has(label) ? 'legendonly' : true 
                 });
             });
 
@@ -1339,6 +1891,15 @@
                 const point = data.points[0];
                 const imgIndex = point.customdata;
                 if (imgIndex !== undefined) showPreview(imagesData[imgIndex]);
+            });
+            
+            // Plotly legend click handling
+            document.getElementById('plotDiv').on('plotly_legendclick', (data) => {
+                const label = data.data[data.curveNumber].name;
+                // We handle state, so return false to disable Plotly's default toggle for now, 
+                // OR we sync our state. Better to sync.
+                toggleLabelVisibility(label);
+                return false; 
             });
         }
 
