@@ -18,8 +18,11 @@
     <!-- Plotly.js (For 3D Plot & Statistics) -->
     <script src="https://cdn.plot.ly/plotly-2.27.0.min.js"></script>
 
-    <!-- D3.js (For High Performance 2D Plot) -->
+    <!-- D3.js (For High Performance 2D Plot & Graph Vis) -->
     <script src="https://d3js.org/d3.v7.min.js"></script>
+
+    <!-- dagre (Graph Layout Engine) -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/dagre/0.8.5/dagre.min.js"></script>
     
     <style>
         @keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
@@ -117,13 +120,13 @@
         /* Plot Tooltip */
         #d3-tooltip {
             position: absolute;
-            background-color: rgba(17, 24, 39, 0.95);
+            background-color: rgba(31, 41, 55, 0.95); /* Slightly lighter dark */
             border: 2px solid #3b82f6;
-            color: white;
-            padding: 8px;
+            color: #f3f4f6; /* Brighter text */
+            padding: 10px;
             border-radius: 6px;
             pointer-events: none;
-            font-size: 11px;
+            font-size: 12px;
             display: none;
             z-index: 30;
             box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.7);
@@ -156,14 +159,14 @@
             position: fixed;
             z-index: 1000;
             display: none;
-            width: 240px;
-            background-color: #111827;
-            color: #e5e7eb;
-            border: 1px solid #374151;
+            width: 260px;
+            background-color: #1f2937; /* Gray-800 for better contrast */
+            color: #f3f4f6;
+            border: 1px solid #4b5563;
             border-radius: 6px;
-            padding: 10px;
-            font-size: 0.75rem;
-            line-height: 1.4;
+            padding: 12px;
+            font-size: 0.8rem;
+            line-height: 1.5;
             box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.5);
             pointer-events: none;
         }
@@ -171,12 +174,112 @@
             border-bottom: 1px dotted #6b7280;
             cursor: help;
         }
+
+        /* Model Graph Styles */
+        #graphModal {
+            display: none;
+            position: fixed;
+            inset: 0;
+            background-color: rgba(0, 0, 0, 0.8);
+            z-index: 50;
+            justify-content: center;
+            align-items: center;
+            backdrop-filter: blur(2px);
+        }
+        #graphSvgContainer {
+            background-color: #111827;
+            border-radius: 8px;
+            border: 1px solid #374151;
+            width: 90vw;
+            height: 90vh;
+            overflow: hidden;
+            position: relative;
+        }
+        #graphMinimap {
+            position: absolute;
+            bottom: 20px;
+            right: 20px;
+            width: 200px;
+            height: 150px;
+            background-color: rgba(17, 24, 39, 0.8);
+            border: 1px solid #4b5563;
+            border-radius: 4px;
+            overflow: hidden;
+            pointer-events: none; /* Display only */
+            z-index: 10;
+        }
+        /* Minimap elements */
+        #graphMinimap svg {
+            width: 100%;
+            height: 100%;
+        }
+        .view-finder {
+            fill: rgba(96, 165, 250, 0.1); /* Blue-400 with opacity */
+            stroke: #60a5fa;
+            stroke-width: 2px; /* Will be scaled, but logic handles it */
+        }
+        
+        .node rect {
+            stroke: #4b5563;
+            fill: #1f2937;
+            stroke-width: 1.5px;
+            transition: all 0.2s;
+        }
+        .node.selected rect {
+            stroke: #3b82f6;
+            fill: #1e3a8a;
+            stroke-width: 3px;
+        }
+        .node text {
+            fill: #f3f4f6; /* Brighter White */
+            font-size: 12px;
+            font-family: monospace;
+            pointer-events: none;
+        }
+        .edgePath path {
+            stroke: #9ca3af;
+            fill: none;
+            stroke-width: 1.5px;
+        }
+        .edgePath marker path {
+            fill: #9ca3af;
+        }
+        /* Hover effect for nodes */
+        .node:hover rect {
+            stroke: #60a5fa;
+            stroke-width: 2px;
+            fill: #374151;
+            filter: drop-shadow(0 0 4px rgba(96, 165, 250, 0.5));
+        }
+        
     </style>
 </head>
 <body class="bg-gray-900 text-white h-screen font-sans flex flex-col overflow-hidden">
 
     <!-- Global Tooltip Element -->
     <div id="js-tooltip"></div>
+
+    <!-- Model Graph Modal -->
+    <div id="graphModal">
+        <div class="flex flex-col w-[90vw] h-[90vh]">
+            <div class="flex justify-between items-center bg-gray-800 p-3 rounded-t-lg border-b border-gray-700">
+                <h2 class="text-lg font-bold text-blue-400">Model Architecture</h2>
+                <div class="flex items-center gap-3">
+                    <button id="resetGraphBtn" class="bg-gray-700 hover:bg-gray-600 text-white text-xs px-3 py-1.5 rounded flex items-center gap-1 transition border border-gray-600">
+                        <svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"></path></svg>
+                        Reset View
+                    </button>
+                    <span class="text-xs text-gray-400 border-l border-gray-600 pl-3">Scroll: Zoom / Drag: Pan</span>
+                    <button id="closeGraphBtn" class="text-gray-400 hover:text-white transition ml-2">
+                        <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"></path></svg>
+                    </button>
+                </div>
+            </div>
+            <div id="graphSvgContainer" class="w-full h-full bg-[#111827] rounded-b-lg relative">
+                <div id="graphMinimap"></div>
+            </div>
+        </div>
+    </div>
 
     <!-- Header -->
     <header class="bg-gray-800 border-b border-gray-700 px-6 py-3 flex justify-between items-center shadow-md z-20 flex-shrink-0">
@@ -281,7 +384,15 @@
             <!-- Model Summary -->
             <div class="flex-grow flex flex-col border-t border-gray-700 min-h-0 bg-gray-850">
                 <div class="flex justify-between items-center px-4 py-2 flex-shrink-0 bg-gray-800">
-                    <span class="text-xs font-bold text-gray-400 uppercase">Layers</span>
+                    <div class="flex items-center gap-2">
+                        <span class="text-xs font-bold text-gray-400 uppercase">Layers</span>
+                        <!-- Show Graph Button (Changed Icon to Graph Style) -->
+                        <button id="showGraphBtn" class="text-blue-400 hover:text-blue-300 transition hidden has-tooltip" title="View Model Architecture" data-tooltip-content="モデルの構造をノードグラフで視覚化します。">
+                            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 7h8m0 0v8m0-8l-8 8-4-4-6 6"></path></svg>
+                            <!-- Alternative Diagram Icon -->
+                            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" style="display:none;"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 7v10c0 2.21 3.582 4 8 4s8-1.79 8-4V7M4 7c0 2.21 3.582 4 8 4s8-1.79 8-4M4 7c0-2.21 3.582-4 8-4s8 1.79 8 4m0 5c0 2.21-3.582 4-8 4s-8-1.79-8-4"></path></svg>
+                        </button>
+                    </div>
                     <span class="text-[10px] text-yellow-500" id="layerHint">Click row to set output</span>
                 </div>
                 <div class="flex-grow overflow-y-auto bg-gray-900 scrollbar-thin">
@@ -387,14 +498,8 @@
 
     <script>
         // --- OVERRIDE TSNE INIT FOR SEED CONTROL ---
-        // We wait until the script body runs, but since tsnejs is loaded via CDN in head, it should be available.
-        // Just in case, we wrap in a check or simple immediate execution block.
         if (window.tsnejs) {
             window.tsnejs.tSNE.prototype.initSolution = function() {
-                // Local gaussRandom that relies on current global Math.random()
-                // Since we set Math.random seed before calling initDataRaw -> initSolution, 
-                // this function will now be deterministic based on that seed.
-                // Also, we re-declare the cache variables locally so they are fresh for every initSolution call.
                 var return_v = false;
                 var v_val = 0.0;
                 var gaussRandom = function() {
@@ -438,23 +543,37 @@
         // --- Configuration & State ---
         let currentDim = 2;
         let modelHandler = null;
-        let imagesData = []; // { ..., coords2D: {x,y}, coords3D: {x,y,z} }
+        let imagesData = [];
         let isRunning = false;
-        
-        // Global state for sorting and colors
         let sortedLabels = [];
         let labelColors = {};
-        let hiddenLabels = new Set(); // Set to track hidden labels
-        let hoveredItem = null; // Track currently hovered item
+        let hiddenLabels = new Set(); 
+        let hoveredItem = null; 
 
-        // Color Palette (D3)
         const COLOR_PALETTE = [
             '#1f77b4', '#ff7f0e', '#2ca02c', '#d62728', '#9467bd', 
             '#8c564b', '#e377c2', '#7f7f7f', '#bcbd22', '#17becf'
         ];
-
-        // Max size of image on screen in pixels (prevents massive overlap when zoomed in)
         const MAX_IMG_PX = 150;
+        
+        // Layer Descriptions
+        const LAYER_DESCRIPTIONS = {
+            'InputLayer': 'モデルへの入力データを受け取る層です。',
+            'Conv2D': '画像から特徴（エッジやテクスチャなど）を抽出する畳み込み層です。',
+            'BatchNormalization': '学習を安定化・高速化させるための正規化層です。',
+            'ReLU': '非線形性を導入する活性化関数です。負の値を0にします。',
+            'MaxPooling2D': '特徴マップを縮小し、重要な特徴を残すプーリング層です。',
+            'GlobalAveragePooling2D': '特徴マップ全体を平均化して、ベクトルに変換する層です。',
+            'Dense': '全結合層。特徴量を組み合わせて最終的な判断を行います。',
+            'Add': '入力を要素ごとに加算する層です（ResNetのスキップ接続など）。',
+            'ZeroPadding2D': '画像の周囲に0を追加してサイズを調整する層です。',
+            'DepthwiseConv2D': 'チャンネルごとに独立して畳み込みを行う、軽量な畳み込み層です。',
+            'Concatenate': '複数の入力を結合して一つにする層です。',
+            'Dropout': '過学習を防ぐために、ランダムに入力を無効化する層です。',
+            'Flatten': '多次元のデータを1次元のベクトルに平坦化する層です。',
+            'Softmax': '出力を確率（合計が1になるように）に変換する活性化関数です。'
+        };
+
 
         // --- DOM Elements ---
         const fileInput = document.getElementById('fileInput');
@@ -471,10 +590,13 @@
         const showImagesToggle = document.getElementById('showImagesToggle');
         const tooltip = document.getElementById('d3-tooltip');
         const resetViewBtn = document.getElementById('resetViewBtn');
-        
-        // Seed UI Elements
         const useFixedSeedCheckbox = document.getElementById('useFixedSeed');
         const seedValueInput = document.getElementById('seedValue');
+        const showGraphBtn = document.getElementById('showGraphBtn');
+        const graphModal = document.getElementById('graphModal');
+        const closeGraphBtn = document.getElementById('closeGraphBtn');
+        const graphSvgContainer = document.getElementById('graphSvgContainer');
+        const resetGraphBtn = document.getElementById('resetGraphBtn');
 
         // --- Random Number Generator ---
         function mulberry32(a) {
@@ -485,7 +607,6 @@
                 return ((t ^ t >>> 14) >>> 0) / 4294967296;
             }
         }
-        // Original Math.random
         const originalMathRandom = Math.random;
 
         useFixedSeedCheckbox.addEventListener('change', (e) => {
@@ -494,22 +615,17 @@
 
         // --- Tooltip Logic (Global) ---
         const jsTooltip = document.getElementById('js-tooltip');
-        
         document.addEventListener('mouseover', (e) => {
             const target = e.target.closest('.has-tooltip');
             if (target) {
                 const title = target.getAttribute('data-tooltip-title');
                 const content = target.getAttribute('data-tooltip-content');
                 if (content) {
-                    jsTooltip.innerHTML = `
-                        ${title ? `<div class="font-bold text-blue-300 mb-1 border-b border-gray-700 pb-1">${title}</div>` : ''}
-                        <div>${content}</div>
-                    `;
+                    jsTooltip.innerHTML = `${title ? `<div class="font-bold text-blue-300 mb-1 border-b border-gray-700 pb-1">${title}</div>` : ''}<div>${content}</div>`;
                     jsTooltip.style.display = 'block';
                 }
             }
         });
-
         document.addEventListener('mousemove', (e) => {
             if (jsTooltip.style.display === 'block') {
                 const x = e.clientX + 15;
@@ -517,18 +633,14 @@
                 const rect = jsTooltip.getBoundingClientRect();
                 const winW = window.innerWidth;
                 const winH = window.innerHeight;
-                
                 let finalX = x;
                 let finalY = y;
-                
                 if (x + rect.width > winW) finalX = x - rect.width - 20;
                 if (y + rect.height > winH) finalY = y - rect.height - 20;
-                
                 jsTooltip.style.left = finalX + 'px';
                 jsTooltip.style.top = finalY + 'px';
             }
         });
-
         document.addEventListener('mouseout', (e) => {
             const target = e.target.closest('.has-tooltip');
             if (target) {
@@ -551,46 +663,32 @@
         dimBtns.forEach(btn => {
             btn.addEventListener('click', async () => {
                 const newDim = parseInt(btn.dataset.dim);
-                if (newDim === currentDim) return; // Ignore if same
-
-                // Update UI
+                if (newDim === currentDim) return;
                 dimBtns.forEach(b => {
                     b.classList.remove('bg-blue-600', 'text-white');
                     b.classList.add('text-gray-400');
                 });
                 btn.classList.remove('text-gray-400');
                 btn.classList.add('bg-blue-600', 'text-white');
-                
                 currentDim = newDim;
 
-                // Cache Check Logic
                 if (imagesData.length > 0 && imagesData[0].features) {
-                    
-                    // Check if cache exists for target dimension
-                    const hasCache = imagesData.every(d => 
-                        (currentDim === 2 && d.coords2D) || 
-                        (currentDim === 3 && d.coords3D)
-                    );
-
+                    const hasCache = imagesData.every(d => (currentDim === 2 && d.coords2D) || (currentDim === 3 && d.coords3D));
                     if (hasCache) {
-                        // Restore from cache
                         imagesData.forEach(d => {
-                            if (currentDim === 2) {
-                                d.x = d.coords2D.x;
-                                d.y = d.coords2D.y;
-                            } else {
-                                d.x = d.coords3D.x;
-                                d.y = d.coords3D.y;
-                                d.z = d.coords3D.z;
-                            }
+                            if (currentDim === 2) { d.x = d.coords2D.x; d.y = d.coords2D.y; } 
+                            else { d.x = d.coords3D.x; d.y = d.coords3D.y; d.z = d.coords3D.z; }
                         });
                         renderPlot();
                     } else {
-                        // Calculate new dimension
                         if (isRunning) return;
                         isRunning = true;
-                        
-                        // Note: seed is handled inside runTSNE now
+                        if (useFixedSeedCheckbox.checked) {
+                            const seed = parseInt(seedValueInput.value) || 12345;
+                            Math.random = mulberry32(seed);
+                        } else {
+                            Math.random = originalMathRandom;
+                        }
                         try {
                             await runTSNE(); 
                             renderPlot();
@@ -609,9 +707,221 @@
             });
         });
 
-        showImagesToggle.addEventListener('change', () => {
-             renderPlot();
+        showImagesToggle.addEventListener('change', () => { renderPlot(); });
+
+        // --- Graph Modal Logic ---
+        showGraphBtn.addEventListener('click', () => {
+            graphModal.style.display = 'flex';
+            renderModelGraph();
         });
+        closeGraphBtn.addEventListener('click', () => {
+            graphModal.style.display = 'none';
+        });
+        graphModal.addEventListener('click', (e) => {
+            if(e.target === graphModal) graphModal.style.display = 'none';
+        });
+
+        let graphZoom = null; 
+        let graphInitialTransform = null; 
+        let graphSvgSelection = null; // New variable to store SVG selection
+
+        resetGraphBtn.addEventListener('click', () => {
+            if (graphZoom && graphInitialTransform && graphSvgSelection) {
+                // Use stored selection to ensure we target the correct element
+                graphSvgSelection.transition().duration(750).call(graphZoom.transform, graphInitialTransform);
+            }
+        });
+
+        function renderModelGraph() {
+            if (!modelHandler || !modelHandler.model || !modelHandler.model.layers) return;
+            
+            // Get Data
+            const { nodes, edges } = modelHandler.getGraphData();
+            if (nodes.length === 0) return;
+
+            graphSvgContainer.innerHTML = '<div id="graphMinimap"></div>'; 
+
+            // Create dagre graph
+            const g = new dagre.graphlib.Graph();
+            g.setGraph({ rankdir: 'TB', nodesep: 30, ranksep: 50 });
+            g.setDefaultEdgeLabel(function() { return {}; });
+
+            nodes.forEach(node => {
+                const label = `${node.name}\n(${node.type})\n${node.shape}`;
+                g.setNode(node.id, { label: label, width: 180, height: 60, 
+                    fullType: node.type,
+                    fullShape: node.shape,
+                    fullName: node.name
+                });
+            });
+
+            edges.forEach(edge => {
+                g.setEdge(edge.from, edge.to);
+            });
+
+            dagre.layout(g);
+
+            // Draw with D3
+            const width = graphSvgContainer.clientWidth;
+            const height = graphSvgContainer.clientHeight;
+            
+            // Store selection in global variable for reset
+            graphSvgSelection = d3.select("#graphSvgContainer").append("svg")
+                .attr("width", "100%")
+                .attr("height", "100%")
+                .attr("viewBox", [0, 0, width, height]);
+            
+            const svg = graphSvgSelection;
+            const inner = svg.append("g");
+
+            // Minimap Setup
+            const minimapSvg = d3.select("#graphMinimap").append("svg")
+                .attr("width", "100%")
+                .attr("height", "100%");
+            
+            const minimapInner = minimapSvg.append("g");
+            const viewFinder = minimapSvg.append("rect")
+                .attr("class", "view-finder")
+                .attr("fill", "transparent")
+                .attr("stroke", "#60a5fa")
+                .attr("stroke-width", "2");
+
+            // Zoom Behavior
+            const zoom = d3.zoom().on("zoom", (event) => {
+                inner.attr("transform", event.transform);
+                
+                const t = event.transform;
+                const k = t.k;
+                viewFinder
+                    .attr("x", -t.x / k)
+                    .attr("y", -t.y / k)
+                    .attr("width", width / k)
+                    .attr("height", height / k)
+                    .attr("stroke-width", 4 / (1/ (Math.max(g.graph().width, g.graph().height) / 200) ) );
+            });
+            
+            svg.call(zoom);
+            graphZoom = zoom;
+
+            // Define arrow marker
+            svg.append("defs").append("marker")
+                .attr("id", "arrowhead")
+                .attr("viewBox", "0 0 10 10")
+                .attr("refX", 9)
+                .attr("refY", 5)
+                .attr("markerWidth", 6)
+                .attr("markerHeight", 6)
+                .attr("orient", "auto")
+                .append("path")
+                .attr("d", "M 0 0 L 10 5 L 0 10 z")
+                .style("fill", "#6b7280");
+
+            // Draw Edges (Main)
+            const line = d3.line()
+                .x(d => d.x)
+                .y(d => d.y)
+                .curve(d3.curveBasis);
+
+            g.edges().forEach(e => {
+                const edge = g.edge(e);
+                inner.append("path")
+                    .attr("d", line(edge.points))
+                    .attr("class", "edgePath")
+                    .style("fill", "none")
+                    .style("stroke", "#6b7280")
+                    .style("stroke-width", "1.5px")
+                    .attr("marker-end", "url(#arrowhead)");
+                
+                // Minimap Edge
+                minimapInner.append("path")
+                     .attr("d", line(edge.points))
+                     .style("fill", "none")
+                     .style("stroke", "#4b5563")
+                     .style("stroke-width", "4px");
+            });
+
+            // Draw Nodes
+            g.nodes().forEach(n => {
+                const node = g.node(n);
+                const desc = LAYER_DESCRIPTIONS[node.fullType] || '詳細情報はありません。';
+
+                // Main Graph Node
+                const group = inner.append("g")
+                    .attr("class", "node " + (n === modelHandler.layerName ? "selected" : ""))
+                    .attr("transform", `translate(${node.x}, ${node.y})`)
+                    .style("cursor", "pointer")
+                    .on("click", () => {
+                        modelHandler.selectLayer(n, null); 
+                        graphModal.style.display = 'none';
+                    })
+                    .on("mouseover", (event) => {
+                        jsTooltip.innerHTML = `
+                            <div class="font-bold text-blue-300 mb-1 border-b border-gray-700 pb-1">${node.fullName}</div>
+                            <div class="mb-1"><span class="text-gray-400">Type:</span> ${node.fullType}</div>
+                            <div class="mb-1"><span class="text-gray-400">Output:</span> <span class="font-mono text-yellow-500">${node.fullShape}</span></div>
+                            <div class="text-gray-400 mt-2 text-[11px] border-t border-gray-700 pt-1 leading-relaxed">${desc}</div>
+                        `;
+                        jsTooltip.style.display = 'block';
+                    })
+                    .on("mousemove", (event) => {
+                        const x = event.clientX + 15;
+                        const y = event.clientY + 15;
+                        const rect = jsTooltip.getBoundingClientRect();
+                        const winW = window.innerWidth;
+                        const winH = window.innerHeight;
+                        let finalX = x;
+                        let finalY = y;
+                        if (x + rect.width > winW) finalX = x - rect.width - 20;
+                        if (y + rect.height > winH) finalY = y - rect.height - 20;
+                        jsTooltip.style.left = finalX + 'px';
+                        jsTooltip.style.top = finalY + 'px';
+                    })
+                    .on("mouseout", () => {
+                        jsTooltip.style.display = 'none';
+                    });
+
+                group.append("rect")
+                    .attr("x", -node.width / 2)
+                    .attr("y", -node.height / 2)
+                    .attr("width", node.width)
+                    .attr("height", node.height)
+                    .attr("rx", 6)
+                    .attr("ry", 6);
+
+                const lines = node.label.split('\n');
+                lines.forEach((line, i) => {
+                    group.append("text")
+                        .attr("dy", (i - (lines.length - 1) / 2) * 1.2 + "em")
+                        .attr("text-anchor", "middle")
+                        .text(line)
+                        .style("font-weight", i===0 ? "bold" : "normal")
+                        .style("fill", i===0 ? "#60a5fa" : "#f3f4f6"); 
+                });
+
+                // Minimap Node
+                minimapInner.append("rect")
+                    .attr("x", node.x - node.width / 2)
+                    .attr("y", node.y - node.height / 2)
+                    .attr("width", node.width)
+                    .attr("height", node.height)
+                    .attr("fill", n === modelHandler.layerName ? "#3b82f6" : "#4b5563");
+            });
+
+            // Initial Scale to fit
+            const graphWidth = g.graph().width;
+            const graphHeight = g.graph().height;
+            const scale = Math.min(width / graphWidth, height / graphHeight) * 0.9;
+            const xCenter = (width - graphWidth * scale) / 2;
+            const yCenter = (height - graphHeight * scale) / 2;
+            
+            const initialTransform = d3.zoomIdentity.translate(xCenter, yCenter).scale(scale);
+            graphInitialTransform = initialTransform;
+            svg.call(zoom.transform, initialTransform);
+
+            // Setup Minimap ViewBox
+            const padding = 50;
+            minimapSvg.attr("viewBox", `${-padding} ${-padding} ${graphWidth + padding*2} ${graphHeight + padding*2}`);
+        }
 
         // --- Model Handler Logic ---
         class ModelHandler {
@@ -622,16 +932,45 @@
                 this.layerName = null;
             }
 
+            // Get Node/Edge data for visualization
+            getGraphData() {
+                if (!this.model || !this.model.layers) return { nodes: [], edges: [] };
+                
+                const nodes = [];
+                const edges = [];
+
+                this.model.layers.forEach(layer => {
+                    let shape = "N/A";
+                    if (layer.outputShape) {
+                        shape = JSON.stringify(layer.outputShape).replace(/null/g, "?");
+                    }
+                    nodes.push({
+                        id: layer.name,
+                        name: layer.name,
+                        type: layer.getClassName(),
+                        shape: shape
+                    });
+
+                    // Inbound Nodes Logic for TFJS Layers
+                    if (layer.inboundNodes && layer.inboundNodes.length > 0) {
+                        layer.inboundNodes.forEach(node => {
+                             node.inboundLayers.forEach(inLayer => {
+                                 edges.push({ from: inLayer.name, to: layer.name });
+                             });
+                        });
+                    }
+                });
+                return { nodes, edges };
+            }
+
             async load(type, file=null) {
                 this.dispose();
                 this.type = type;
-                
                 const urls = {
                     'mobilenet_v2_100': 'https://tfhub.dev/google/tfjs-model/imagenet/mobilenet_v2_100_224/feature_vector/4/default/1',
                     'mobilenet_v3_large': 'https://www.kaggle.com/models/google/mobilenet-v3/TfJs/large-100-224-feature-vector/1',
                     'resnet50_v2': 'https://www.kaggle.com/models/google/resnet-v2/TfJs/50-feature-vector/2'
                 };
-
                 try {
                     if (type === 'custom_zip' && file) {
                         await this.loadZip(file);
@@ -639,10 +978,7 @@
                         this.model = await tf.loadGraphModel(urls[type], { fromTFHub: true });
                         this.renderSummary(false); 
                     }
-                    
-                    // Warmup immediately after load to stabilize GPU
                     await this.warmup();
-
                     return true;
                 } catch (e) {
                     console.error(e);
@@ -654,12 +990,10 @@
             async warmup() {
                 if (!this.model) return;
                 tf.tidy(() => {
-                    // Warmup with dummy data
                     const zeros = tf.zeros([1, 224, 224, 3]);
                     if (this.subModel) this.subModel.predict(zeros);
                     else this.model.predict(zeros);
                 });
-                // Wait for GPU
                 await tf.nextFrame();
             }
 
@@ -679,24 +1013,27 @@
                         weights.push(new File([blob], name.split('/').pop()));
                     }
                 }
-                
                 this.model = await tf.loadLayersModel(tf.io.browserFiles([jsonFile, ...weights]));
                 this.renderSummary(true);
             }
 
             renderSummary(isLayers) {
                 const tbody = document.getElementById('modelSummaryBody');
+                const graphBtn = document.getElementById('showGraphBtn');
+                
                 tbody.innerHTML = '';
                 document.getElementById('layerHint').style.display = isLayers ? 'block' : 'none';
+                graphBtn.style.display = isLayers ? 'block' : 'none'; // Toggle Graph Button
 
                 if (!isLayers) {
-                    tbody.innerHTML = `<tr><td class="p-2 text-gray-400 text-xs">GraphModel loaded.<br>Internal layers hidden.<br>Output: Feature Vector</td></tr>`;
+                    tbody.innerHTML = `<tr><td class="p-2 text-center text-gray-500 italic">GraphModel loaded.<br>Internal layers hidden.<br>Output: Feature Vector</td></tr>`;
                     return;
                 }
 
                 this.model.layers.forEach(layer => {
                     const tr = document.createElement('tr');
                     tr.className = 'border-b border-gray-800 hover:bg-gray-800 layer-row-clickable transition-colors';
+                    tr.dataset.layer = layer.name; // Store layer name for selection logic
                     tr.innerHTML = `
                         <td class="p-2">
                             <div class="font-bold text-blue-300 truncate w-32" title="${layer.name}">${layer.name}</div>
@@ -717,23 +1054,31 @@
                 if (this.layerName === name) {
                     this.layerName = null;
                     this.subModel = null;
-                    trElement.classList.remove('layer-row-selected');
+                    if(trElement) trElement.classList.remove('layer-row-selected');
                 } else {
                     document.querySelectorAll('.layer-row-selected').forEach(el => el.classList.remove('layer-row-selected'));
                     this.layerName = name;
                     const layer = this.model.getLayer(name);
                     this.subModel = tf.model({ inputs: this.model.inputs, outputs: layer.output });
-                    trElement.classList.add('layer-row-selected');
+                    
+                    // Highlight row if passed, or find it
+                    if (trElement) {
+                        trElement.classList.add('layer-row-selected');
+                    } else {
+                        const row = document.querySelector(`tr[data-layer="${name}"]`);
+                        if (row) {
+                            row.classList.add('layer-row-selected');
+                            row.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                        }
+                    }
                 }
                 
-                // Reset cached data since the model output layer (and thus features) changed
                 if (typeof imagesData !== 'undefined') {
                     imagesData.forEach(d => {
                         d.features = null;
                         d.coords2D = null;
                         d.coords3D = null;
                     });
-                    // Reset UI state to encourage re-run
                     const plotDiv = document.getElementById('plotDiv');
                     if (plotDiv) plotDiv.innerHTML = '';
                     const emptyState = document.getElementById('emptyState');
@@ -782,24 +1127,19 @@
 
         modelHandler = new ModelHandler();
 
-        // --- Main Logic ---
+        // ... (Rest of the main logic remains same, UI init logic adjusted above) ...
         
         fileInput.addEventListener('change', (e) => {
-            // Revoke old URLs
             imagesData.forEach(d => { if(d.imgUrl) URL.revokeObjectURL(d.imgUrl); });
             imagesData = [];
             hiddenLabels.clear();
-            
             const files = Array.from(e.target.files).filter(f => f.type.startsWith('image/'));
             if (files.length === 0) return;
-            
             imagesData = files.map(f => {
                 const parts = f.webkitRelativePath.split('/');
                 const label = parts.length >= 2 ? parts[parts.length - 2] : "root";
-                // Init coords cache
                 return { file: f, label: label, name: f.name, features: null, coords2D: null, coords3D: null };
             });
-
             fileCount.innerText = `${imagesData.length} images`;
             document.getElementById('emptyState').style.display = 'flex';
             document.getElementById('plotDiv').innerHTML = ''; 
@@ -835,15 +1175,7 @@
             setLoading(true, "Loading Model...", 50);
             await new Promise(r => setTimeout(r, 50));
             const success = await modelHandler.load(type, file);
-            
-            // RESET DATA on Model Change:
-            // Old features are invalid for new model
-            imagesData.forEach(d => { 
-                d.features = null;
-                d.coords2D = null;
-                d.coords3D = null; 
-            });
-
+            imagesData.forEach(d => { d.features = null; d.coords2D = null; d.coords3D = null; });
             setLoading(false);
             if (success) {
                 runBtn.innerText = "Run Analysis";
@@ -866,14 +1198,16 @@
             isRunning = true;
             runBtn.disabled = true;
             document.getElementById('emptyState').style.display = 'none';
-
-            // Clear previous cache on Run Analysis, BUT KEEP FEATURES if model is same
             imagesData.forEach(d => { d.coords2D = null; d.coords3D = null; });
-
             try {
-                await processImages(); // This will now skip if features exist
+                await processImages(); 
                 calculateStats();
-                // seed logic is now inside runTSNE
+                if (useFixedSeedCheckbox.checked) {
+                    const seed = parseInt(seedValueInput.value) || 12345;
+                    Math.random = mulberry32(seed);
+                } else {
+                    Math.random = originalMathRandom;
+                }
                 await runTSNE();
                 renderPlot();
                 exportBtn.disabled = false;
@@ -892,29 +1226,14 @@
             const total = imagesData.length;
             for (let i = 0; i < total; i++) {
                 const item = imagesData[i];
-                
-                // Optimization: Skip if features already extracted (fixes instability)
-                if (item.features) {
-                    // Also ensure width/height are set
-                    if (item.width && item.height) continue;
-                }
-
+                if (item.features) { if (item.width && item.height) continue; }
                 setLoading(true, `Extracting Features (${i+1}/${total})`, (i/total)*100);
-                
-                if (!item.imgUrl) {
-                    item.imgUrl = URL.createObjectURL(item.file);
-                }
-                
+                if (!item.imgUrl) item.imgUrl = URL.createObjectURL(item.file);
                 const { img, width, height } = await loadImage(item.file);
                 item.width = width;
                 item.height = height;
                 item.imgElement = img; 
-                
-                // Only predict if features missing
-                if (!item.features) {
-                    item.features = modelHandler.predict(img);
-                }
-                
+                if (!item.features) item.features = modelHandler.predict(img);
                 if (i % 5 === 0) await new Promise(r => setTimeout(r, 0));
             }
         }
@@ -925,11 +1244,7 @@
                 reader.onload = (e) => {
                     const img = new Image();
                     img.src = e.target.result;
-                    img.onload = () => resolve({ 
-                        img, 
-                        width: img.naturalWidth, 
-                        height: img.naturalHeight 
-                    });
+                    img.onload = () => resolve({ img, width: img.naturalWidth, height: img.naturalHeight });
                     img.onerror = reject;
                 };
                 reader.readAsDataURL(file);
@@ -938,31 +1253,20 @@
 
         async function runTSNE() {
             setLoading(true, `Initializing t-SNE (${currentDim}D)...`, 0);
-            
-            // Wait a tick for UI update
             await new Promise(r => setTimeout(r, 10));
-
             const features = imagesData.map(d => d.features);
             const perplexity = parseInt(document.getElementById('perplexity').value) || 20;
             const iterations = parseInt(document.getElementById('iterations').value) || 400;
-            const opt = {
-                perplexity: Math.min(perplexity, features.length - 1),
-                dim: currentDim,
-                epsilon: 10
-            };
-
-            // --- FIX SEED HERE ---
+            const opt = { perplexity: Math.min(perplexity, features.length - 1), dim: currentDim, epsilon: 10 };
             if (useFixedSeedCheckbox.checked) {
                 const seed = parseInt(seedValueInput.value) || 12345;
                 Math.random = mulberry32(seed);
+                if(tsnejs.tSNE.prototype.initSolution) {/* patched */}
             } else {
                 Math.random = originalMathRandom;
             }
-            // ---------------------
-
             const tsne = new tsnejs.tSNE(opt);
             tsne.initDataRaw(features);
-            
             for (let k = 0; k < iterations; k++) {
                 tsne.step();
                 if (k % 20 === 0) {
@@ -971,8 +1275,6 @@
                 }
             }
             const solution = tsne.getSolution();
-            
-            // Cache results
             if (currentDim === 2) {
                 solution.forEach((point, i) => {
                     imagesData[i].coords2D = { x: point[0], y: point[1] };
@@ -989,11 +1291,9 @@
             }
         }
 
-        // --- Render Plot (Switch) ---
         function renderPlot() {
             if (imagesData.length === 0 || imagesData[0].x === undefined) return;
             document.getElementById('plotDiv').innerHTML = ''; 
-
             if (currentDim === 2) {
                 renderD3_2D();
                 resetViewBtn.style.display = "block"; 
@@ -1003,315 +1303,125 @@
             }
         }
 
-        // --- D3.js Implementation (2D Canvas + SVG Overlay) ---
+        // ... (renderD3_2D, renderPlotly3D, calculateStats, renderViolin, showPreview, exportBtn logic same as before) ...
+        // Re-including render functions for completeness
         function renderD3_2D() {
             const showImages = document.getElementById('showImagesToggle').checked;
             const container = document.getElementById('plotDiv');
             const width = container.clientWidth;
             const height = container.clientHeight;
-
-            // 1. Create SVG (Top Layer for Axes) - Added First to be in back visually but z-index handles it
-            const svg = d3.select("#plotDiv").append("svg")
-                .attr("width", width)
-                .attr("height", height)
-                .attr("viewBox", [0, 0, width, height])
-                .style("position", "absolute")
-                .style("top", 0)
-                .style("left", 0)
-                .style("pointer-events", "none");
-
-            // 2. Create Canvas (Bottom Layer) - Added Second but z-index puts it on top
-            const canvas = d3.select("#plotDiv").append("canvas")
-                .attr("width", width)
-                .attr("height", height)
-                .style("width", "100%")
-                .style("height", "100%");
-            
+            const svg = d3.select("#plotDiv").append("svg").attr("width", width).attr("height", height).attr("viewBox", [0, 0, width, height]).style("position", "absolute").style("top", 0).style("left", 0).style("pointer-events", "none");
+            const canvas = d3.select("#plotDiv").append("canvas").attr("width", width).attr("height", height).style("width", "100%").style("height", "100%");
             const context = canvas.node().getContext("2d");
-
-            // 3. Create Legend (HTML Overlay)
-            const legendDiv = d3.select("#plotDiv").append("div")
-                .attr("class", "legend-container");
-            
+            const legendDiv = d3.select("#plotDiv").append("div").attr("class", "legend-container");
             sortedLabels.forEach(label => {
-                const item = legendDiv.append("div")
-                    .attr("class", "legend-item has-tooltip") // Added tooltip class
-                    .attr("data-label", label)
-                    .attr("data-tooltip-content", `Click to toggle visibility for ${label}`)
-                    .on("click", function() {
+                const item = legendDiv.append("div").attr("class", "legend-item has-tooltip").attr("data-label", label).attr("data-tooltip-content", `Click to toggle visibility for ${label}`).on("click", function() {
                         const l = d3.select(this).attr("data-label");
-                        if (hiddenLabels.has(l)) {
-                            hiddenLabels.delete(l);
-                            d3.select(this).classed("inactive", false);
-                        } else {
-                            hiddenLabels.add(l);
-                            d3.select(this).classed("inactive", true);
-                        }
+                        if (hiddenLabels.has(l)) { hiddenLabels.delete(l); d3.select(this).classed("inactive", false); } 
+                        else { hiddenLabels.add(l); d3.select(this).classed("inactive", true); }
                         draw(currentTransform.rescaleX(xScale), currentTransform.rescaleY(yScale));
                     });
-
-                item.append("div")
-                    .attr("class", "legend-color")
-                    .style("background-color", labelColors[label]);
+                item.append("div").attr("class", "legend-color").style("background-color", labelColors[label]);
                 item.append("span").text(label);
             });
-
-            // Scales
             const xExtent = d3.extent(imagesData, d => d.x);
             const yExtent = d3.extent(imagesData, d => d.y);
             const xPad = (xExtent[1] - xExtent[0]) * 0.05;
             const yPad = (yExtent[1] - yExtent[0]) * 0.05;
-
-            const xScale = d3.scaleLinear()
-                .domain([xExtent[0] - xPad, xExtent[1] + xPad])
-                .range([40, width - 20]); 
-            
-            const yScale = d3.scaleLinear()
-                .domain([yExtent[0] - yPad, yExtent[1] + yPad])
-                .range([height - 30, 20]); 
-
-            // Axes
+            const xScale = d3.scaleLinear().domain([xExtent[0] - xPad, xExtent[1] + xPad]).range([40, width - 20]); 
+            const yScale = d3.scaleLinear().domain([yExtent[0] - yPad, yExtent[1] + yPad]).range([height - 30, 20]); 
             const xAxis = d3.axisBottom(xScale).tickSize(-(height - 50)).ticks(10);
             const yAxis = d3.axisLeft(yScale).tickSize(-(width - 60)).ticks(10);
-
-            const gx = svg.append("g")
-                .attr("class", "axis grid")
-                .attr("transform", `translate(0,${height - 30})`)
-                .call(xAxis);
-            
-            const gy = svg.append("g")
-                .attr("class", "axis grid")
-                .attr("transform", `translate(40,0)`)
-                .call(yAxis);
-
-            // Styles for grid (More visible)
+            const gx = svg.append("g").attr("class", "axis grid").attr("transform", `translate(0,${height - 30})`).call(xAxis);
+            const gy = svg.append("g").attr("class", "axis grid").attr("transform", `translate(40,0)`).call(yAxis);
             svg.selectAll(".grid line").style("stroke-opacity", 0.25).style("stroke", "#4b5563");
             svg.selectAll(".domain").style("stroke", "#4b5563");
-
-            // Base Image Size
             const baseSize = Math.min(width, height) * 0.08;
-
-            // Zoom Behavior
             let currentTransform = d3.zoomIdentity;
             let zoomTimer = null;
-            
-            const zoom = d3.zoom()
-                .scaleExtent([0.5, 50])
-                .on("zoom", (event) => {
+            const zoom = d3.zoom().scaleExtent([0.5, 50]).on("zoom", (event) => {
                     currentTransform = event.transform;
-                    
                     const newX = currentTransform.rescaleX(xScale);
                     const newY = currentTransform.rescaleY(yScale);
-                    
                     gx.call(xAxis.scale(newX));
                     gy.call(yAxis.scale(newY));
-                    
-                    // Reset Grid Opacity
                     svg.selectAll(".grid line").style("stroke-opacity", 0.25).style("stroke", "#4b5563");
-
-                    // Performance: Draw simple dots/rects while dragging/zooming
-                    // if in image mode, to prevent lag.
-                    if (showImages) {
-                        draw(newX, newY, true); // quick mode
-                        
-                        // Debounce full render
-                        if (zoomTimer) clearTimeout(zoomTimer);
-                        zoomTimer = setTimeout(() => {
-                            draw(newX, newY, false); // full mode
-                        }, 300);
-                    } else {
-                        draw(newX, newY, false);
-                    }
+                    if (showImages) { draw(newX, newY, true); if (zoomTimer) clearTimeout(zoomTimer); zoomTimer = setTimeout(() => { draw(newX, newY, false); }, 300); } else { draw(newX, newY, false); }
                 });
-
             canvas.call(zoom);
-
-            // Reset Button Action
-            resetViewBtn.onclick = () => {
-                canvas.transition().duration(750).call(zoom.transform, d3.zoomIdentity);
-            };
-
-            // Mouse Move Logic (Nearest Neighbor & Tooltip)
+            resetViewBtn.onclick = () => { canvas.transition().duration(750).call(zoom.transform, d3.zoomIdentity); };
             canvas.on("mousemove", (event) => {
-                // Calculate mouse position relative to plot container
                 const [mx, my] = d3.pointer(event, document.getElementById('plotContainer'));
-                
-                // For D3 calculation, we need canvas-relative coords which match plotContainer in this layout
-                // But d3.pointer event target is canvas. 
-                const [cmx, cmy] = d3.pointer(event); // Canvas mouse x, y
-
+                const [cmx, cmy] = d3.pointer(event); 
                 const newX = currentTransform.rescaleX(xScale);
                 const newY = currentTransform.rescaleY(yScale);
-
-                // Find closest visible point
-                const closest = d3.least(
-                    imagesData.filter(d => !hiddenLabels.has(d.label)), 
-                    d => {
-                        const tx = newX(d.x);
-                        const ty = newY(d.y);
-                        return Math.hypot(tx - cmx, ty - cmy);
-                    }
-                );
-
-                hoveredItem = null; // Reset hovered
-
+                const closest = d3.least(imagesData.filter(d => !hiddenLabels.has(d.label)), d => { const tx = newX(d.x); const ty = newY(d.y); return Math.hypot(tx - cmx, ty - cmy); });
+                hoveredItem = null; 
                 if (closest) {
                     const tx = newX(closest.x);
                     const ty = newY(closest.y);
                     const dist = Math.hypot(tx - cmx, ty - cmy);
-                    
                     let renderSize = 8; 
-                    if (showImages) {
-                        const projectedSize = baseSize * currentTransform.k;
-                        const clampedSize = Math.min(projectedSize, MAX_IMG_PX);
-                        renderSize = clampedSize;
-                    }
-                    
-                    // Threshold for hover detection
+                    if (showImages) { const projectedSize = baseSize * currentTransform.k; const clampedSize = Math.min(projectedSize, MAX_IMG_PX); renderSize = clampedSize; }
                     if (dist < Math.max(20, renderSize / 1.5)) {
-                        hoveredItem = closest; // Set hovered item
-                        showPreview(closest);
-                        
-                        // Show Tooltip near mouse
+                        hoveredItem = closest; showPreview(closest);
                         tooltip.style.display = "block";
-                        // Position tooltip near mouse pointer (relative to container)
                         tooltip.style.left = (mx + 15) + "px";
                         tooltip.style.top = (my + 15) + "px";
-                        
-                        // Set border color match category
                         const color = labelColors[closest.label] || '#3b82f6';
                         tooltip.style.borderColor = color;
-                        
-                        tooltip.innerHTML = `
-                            <div class="font-bold" style="color: ${color}">${closest.label}</div>
-                            <div class="text-[10px] text-gray-300">${closest.name}</div>
-                            <div class="text-[9px] text-gray-400 font-mono mt-1">(${closest.x.toFixed(2)}, ${closest.y.toFixed(2)})</div>
-                        `;
-                    } else {
-                        tooltip.style.display = "none";
-                    }
-                } else {
-                    tooltip.style.display = "none";
-                }
-                
-                // Redraw to show/hide highlight
+                        tooltip.innerHTML = `<div class="font-bold" style="color: ${color}">${closest.label}</div><div class="text-[10px] text-gray-300">${closest.name}</div><div class="text-[9px] text-gray-400 font-mono mt-1">(${closest.x.toFixed(2)}, ${closest.y.toFixed(2)})</div>`;
+                    } else { tooltip.style.display = "none"; }
+                } else { tooltip.style.display = "none"; }
                 draw(newX, newY);
             });
-
-            canvas.on("mouseleave", () => {
-                tooltip.style.display = "none";
-                hoveredItem = null;
-                draw(currentTransform.rescaleX(xScale), currentTransform.rescaleY(yScale));
-            });
-
-            // Draw Function
+            canvas.on("mouseleave", () => { tooltip.style.display = "none"; hoveredItem = null; draw(currentTransform.rescaleX(xScale), currentTransform.rescaleY(yScale)); });
             function draw(tXScale, tYScale, isQuick = false) {
                 const sx = tXScale || xScale;
                 const sy = tYScale || yScale;
-
                 const context = canvas.node().getContext("2d");
                 context.save();
                 context.clearRect(0, 0, width, height);
-                
                 // Canvas background removed (handled by CSS on parent)
-
                 if (showImages) {
-                    // Image Mode
                     const projectedSize = baseSize * currentTransform.k;
                     const clampedSize = Math.min(projectedSize, MAX_IMG_PX);
-                    
-                    // 1. Draw non-hovered items
                     imagesData.forEach(d => {
                         if (hiddenLabels.has(d.label) || d === hoveredItem) return; 
-
                         const cx = sx(d.x);
                         const cy = sy(d.y);
-                        
                         if (cx < -clampedSize || cx > width + clampedSize || cy < -clampedSize || cy > height + clampedSize) return;
-
                         let dw, dh;
-                        if (d.width >= d.height) {
-                            dw = clampedSize;
-                            dh = clampedSize * (d.height / d.width);
-                        } else {
-                            dh = clampedSize;
-                            dw = clampedSize * (d.width / d.height);
-                        }
-
-                        if (isQuick) {
-                            // Quick mode: Draw only placeholder rect
-                            context.fillStyle = labelColors[d.label] || "#ccc";
-                            context.globalAlpha = 0.5;
-                            context.fillRect(cx - dw/2, cy - dh/2, dw, dh);
-                            context.globalAlpha = 1.0;
-                        } else if (d.imgElement) {
-                            // Draw border
-                            context.strokeStyle = labelColors[d.label] || "#fff";
-                            context.lineWidth = 2;
-                            context.strokeRect(cx - dw/2 - 1, cy - dh/2 - 1, dw + 2, dh + 2);
-
-                            // Draw Image
-                            context.drawImage(d.imgElement, cx - dw/2, cy - dh/2, dw, dh);
-                        }
+                        if (d.width >= d.height) { dw = clampedSize; dh = clampedSize * (d.height / d.width); } else { dh = clampedSize; dw = clampedSize * (d.width / d.height); }
+                        if (isQuick) { context.fillStyle = labelColors[d.label] || "#ccc"; context.globalAlpha = 0.5; context.fillRect(cx - dw/2, cy - dh/2, dw, dh); context.globalAlpha = 1.0; } 
+                        else if (d.imgElement) { context.strokeStyle = labelColors[d.label] || "#fff"; context.lineWidth = 2; context.strokeRect(cx - dw/2 - 1, cy - dh/2 - 1, dw + 2, dh + 2); context.drawImage(d.imgElement, cx - dw/2, cy - dh/2, dw, dh); }
                     });
-
-                    // 2. Draw hovered item (Enlarged & On Top) - Always full render for hover
                     if (hoveredItem && !hiddenLabels.has(hoveredItem.label)) {
                         const d = hoveredItem;
                         const cx = sx(d.x);
                         const cy = sy(d.y);
-                        
                         let dw, dh;
-                        // Enlarge size by 1.5x
                         const highlightSize = clampedSize * 1.5;
-                        
-                        if (d.width >= d.height) {
-                            dw = highlightSize;
-                            dh = highlightSize * (d.height / d.width);
-                        } else {
-                            dh = highlightSize;
-                            dw = highlightSize * (d.width / d.height);
-                        }
-
-                        if (d.imgElement) {
-                            context.shadowColor = "rgba(0,0,0,0.8)";
-                            context.shadowBlur = 15;
-                            
-                            // Draw thicker border
-                            context.strokeStyle = labelColors[d.label] || "#fff";
-                            context.lineWidth = 4;
-                            context.strokeRect(cx - dw/2 - 2, cy - dh/2 - 2, dw + 4, dh + 4);
-
-                            context.drawImage(d.imgElement, cx - dw/2, cy - dh/2, dw, dh);
-                            context.shadowBlur = 0;
-                        }
+                        if (d.width >= d.height) { dw = highlightSize; dh = highlightSize * (d.height / d.width); } else { dh = highlightSize; dw = highlightSize * (d.width / d.height); }
+                        if (d.imgElement) { context.shadowColor = "rgba(0,0,0,0.8)"; context.shadowBlur = 15; context.strokeStyle = labelColors[d.label] || "#fff"; context.lineWidth = 4; context.strokeRect(cx - dw/2 - 2, cy - dh/2 - 2, dw + 4, dh + 4); context.drawImage(d.imgElement, cx - dw/2, cy - dh/2, dw, dh); context.shadowBlur = 0; }
                     }
-
                 } else {
-                    // Dot Mode
-                    // 1. Draw non-hovered
                     imagesData.forEach(d => {
                         if (hiddenLabels.has(d.label) || d === hoveredItem) return;
-
                         const cx = sx(d.x);
                         const cy = sy(d.y);
-                        
                         if (cx < 0 || cx > width || cy < 0 || cy > height) return;
-
                         context.beginPath();
                         context.arc(cx, cy, 4, 0, 2 * Math.PI);
                         context.fillStyle = labelColors[d.label] || "#ccc";
                         context.fill();
                     });
-
-                    // 2. Draw hovered (Enlarged)
                     if (hoveredItem && !hiddenLabels.has(hoveredItem.label)) {
                         const d = hoveredItem;
                         const cx = sx(d.x);
                         const cy = sy(d.y);
-                        
                         context.beginPath();
-                        context.arc(cx, cy, 8, 0, 2 * Math.PI); // Larger radius
+                        context.arc(cx, cy, 8, 0, 2 * Math.PI); 
                         context.fillStyle = labelColors[d.label] || "#ccc";
                         context.strokeStyle = "white";
                         context.lineWidth = 2;
@@ -1319,19 +1429,14 @@
                         context.stroke();
                     }
                 }
-
                 context.restore();
             }
-
-            // Initial Draw
             draw(xScale, yScale);
         }
-
-        // --- Plotly Implementation (3D) ---
+        
         function renderPlotly3D() {
             const traces = [];
             const groups = {};
-            
             imagesData.forEach((item, idx) => {
                 if (!groups[item.label]) groups[item.label] = { x: [], y: [], z: [], ids: [] };
                 groups[item.label].x.push(item.x);
@@ -1339,53 +1444,30 @@
                 groups[item.label].z.push(item.z);
                 groups[item.label].ids.push(idx);
             });
-
             sortedLabels.forEach(label => {
                 if (!groups[label]) return;
                 const g = groups[label];
                 traces.push({
-                    x: g.x, y: g.y, z: g.z,
-                    mode: 'markers',
-                    type: 'scatter3d',
-                    name: label,
-                    text: g.ids.map(id => imagesData[id].name),
-                    customdata: g.ids,
+                    x: g.x, y: g.y, z: g.z, mode: 'markers', type: 'scatter3d', name: label,
+                    text: g.ids.map(id => imagesData[id].name), customdata: g.ids,
                     marker: { size: 4, opacity: 0.8, color: labelColors[label] }
                 });
             });
-
             const layout = {
-                autosize: true,
-                paper_bgcolor: 'rgba(0,0,0,0)',
-                plot_bgcolor: 'rgba(0,0,0,0)',
-                font: { color: '#9ca3af' },
-                margin: { l: 0, r: 0, b: 0, t: 30 },
+                autosize: true, paper_bgcolor: 'rgba(0,0,0,0)', plot_bgcolor: 'rgba(0,0,0,0)',
+                font: { color: '#9ca3af' }, margin: { l: 0, r: 0, b: 0, t: 30 },
                 legend: { x: 0, y: 1, font: { size: 10 }, bgcolor: 'rgba(0,0,0,0.5)' },
-                scene: { 
-                    xaxis: { showgrid: true, gridcolor: '#374151' },
-                    yaxis: { showgrid: true, gridcolor: '#374151' },
-                    zaxis: { showgrid: true, gridcolor: '#374151' },
-                },
+                scene: { xaxis: { showgrid: true, gridcolor: '#374151' }, yaxis: { showgrid: true, gridcolor: '#374151' }, zaxis: { showgrid: true, gridcolor: '#374151' } },
                 hovermode: 'closest'
             };
-            
             Plotly.newPlot('plotDiv', traces, layout, { responsive: true, displayModeBar: true });
-
-            document.getElementById('plotDiv').on('plotly_hover', (data) => {
-                const point = data.points[0];
-                const imgIndex = point.customdata;
-                if (imgIndex !== undefined) showPreview(imagesData[imgIndex]);
-            });
+            document.getElementById('plotDiv').on('plotly_hover', (data) => { const point = data.points[0]; const imgIndex = point.customdata; if (imgIndex !== undefined) showPreview(imagesData[imgIndex]); });
         }
-
+        
         function calculateStats() {
             const groups = {};
             const allLabels = new Set();
-            imagesData.forEach(item => {
-                if (!groups[item.label]) groups[item.label] = [];
-                groups[item.label].push(item.features);
-                allLabels.add(item.label);
-            });
+            imagesData.forEach(item => { if (!groups[item.label]) groups[item.label] = []; groups[item.label].push(item.features); allLabels.add(item.label); });
             const results = [];
             const kdeData = { dist: {}, cos: {} };
             tf.tidy(() => {
@@ -1416,66 +1498,29 @@
             const tbody = document.getElementById('statsTableBody');
             tbody.innerHTML = results.map((r, i) => {
                 const color = labelColors[r.label];
-                return `
-                <tr class="border-b border-gray-800 hover:bg-gray-700">
-                    <td class="p-2 font-medium text-blue-300 flex items-center gap-2">
-                        <span class="w-2 h-2 rounded-full inline-block" style="background-color: ${color};"></span>
-                        ${r.label}
-                    </td>
-                    <td class="p-2 text-right text-gray-400">${r.count}</td>
-                    <td class="p-2 text-right font-mono text-green-400">${r.meanDist.toFixed(3)}</td>
-                    <td class="p-2 text-right font-mono text-gray-400">${r.maxDist.toFixed(3)}</td>
-                    <td class="p-2 text-right font-mono text-gray-400">${r.dispersion.toFixed(3)}</td>
-                    <td class="p-2 text-right font-mono text-blue-300">${r.meanCosSim.toFixed(3)}</td>
-                </tr>
-            `}).join('');
+                return `<tr class="border-b border-gray-800 hover:bg-gray-700"><td class="p-2 font-medium text-blue-300 flex items-center gap-2"><span class="w-2 h-2 rounded-full inline-block" style="background-color: ${color};"></span>${r.label}</td><td class="p-2 text-right text-gray-400">${r.count}</td><td class="p-2 text-right font-mono text-green-400">${r.meanDist.toFixed(3)}</td><td class="p-2 text-right font-mono text-gray-400">${r.maxDist.toFixed(3)}</td><td class="p-2 text-right font-mono text-gray-400">${r.dispersion.toFixed(3)}</td><td class="p-2 text-right font-mono text-blue-300">${r.meanCosSim.toFixed(3)}</td></tr>`;
+            }).join('');
             renderViolin(sortedLabels, kdeData, document.getElementById('kdeMetric').value);
             document.getElementById('kdeMetric').onchange = (e) => { renderViolin(sortedLabels, kdeData, e.target.value); };
         }
-
         function renderViolin(sortedLabelsList, kdeData, metric) {
             const dataMap = metric === 'dist' ? kdeData.dist : kdeData.cos;
             const traces = [];
-            sortedLabelsList.forEach(label => {
-                if (dataMap[label] && dataMap[label].length > 0) {
-                    traces.push({
-                        type: 'violin', x: dataMap[label], name: label, points: false, box: { visible: false },
-                        meanline: { visible: true }, orientation: 'h', side: 'positive', width: 1.5,
-                        line: { width: 1, color: labelColors[label] }, fillcolor: labelColors[label], opacity: 0.6
-                    });
-                }
-            });
-            const layout = {
-                margin: { t: 0, l: 100, r: 20, b: 30 }, paper_bgcolor: 'rgba(0,0,0,0)', plot_bgcolor: 'rgba(0,0,0,0)',
-                font: { color: '#9ca3af', size: 10 }, xaxis: { showgrid: true, gridcolor: '#374151' },
-                yaxis: { automargin: true, categoryorder: 'array', categoryarray: sortedLabelsList.slice().reverse() },
-                showlegend: false, height: 200
-            };
+            sortedLabelsList.forEach(label => { if (dataMap[label] && dataMap[label].length > 0) { traces.push({ type: 'violin', x: dataMap[label], name: label, points: false, box: { visible: false }, meanline: { visible: true }, orientation: 'h', side: 'positive', width: 1.5, line: { width: 1, color: labelColors[label] }, fillcolor: labelColors[label], opacity: 0.6 }); } });
+            const layout = { margin: { t: 0, l: 100, r: 20, b: 30 }, paper_bgcolor: 'rgba(0,0,0,0)', plot_bgcolor: 'rgba(0,0,0,0)', font: { color: '#9ca3af', size: 10 }, xaxis: { showgrid: true, gridcolor: '#374151' }, yaxis: { automargin: true, categoryorder: 'array', categoryarray: sortedLabelsList.slice().reverse() }, showlegend: false, height: 200 };
             Plotly.react('kdeDiv', traces, layout, { displayModeBar: false });
         }
-
         function showPreview(item) {
             const reader = new FileReader();
-            reader.onload = (e) => {
-                previewImg.src = e.target.result;
-                previewImg.classList.remove('opacity-50');
-                const color = labelColors[item.label] || '#fff';
-                previewLabel.innerHTML = `<span style="color:${color}">●</span> ${item.label}: ${item.name}`;
-                previewLabel.classList.remove('hidden');
-            };
+            reader.onload = (e) => { previewImg.src = e.target.result; previewImg.classList.remove('opacity-50'); const color = labelColors[item.label] || '#fff'; previewLabel.innerHTML = `<span style="color:${color}">●</span> ${item.label}: ${item.name}`; previewLabel.classList.remove('hidden'); };
             reader.readAsDataURL(item.file);
         }
-
         exportBtn.addEventListener('click', () => {
             if (imagesData.length === 0 || !imagesData[0].x) return;
             const headers = ['Name', 'Label', 'X', 'Y'];
             if (currentDim === 3) headers.push('Z');
             const rows = [headers.join(',')];
-            imagesData.forEach(d => {
-                const row = [d.name, d.label, d.x.toFixed(5), d.y.toFixed(5)];
-                if (currentDim === 3) row.push(d.z.toFixed(5));
-                rows.push(row.join(','));
-            });
+            imagesData.forEach(d => { const row = [d.name, d.label, d.x.toFixed(5), d.y.toFixed(5)]; if (currentDim === 3) row.push(d.z.toFixed(5)); rows.push(row.join(',')); });
             const csvContent = "data:text/csv;charset=utf-8," + rows.join("\n");
             const link = document.createElement("a");
             link.setAttribute("href", encodeURI(csvContent));
