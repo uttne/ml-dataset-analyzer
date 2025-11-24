@@ -10,7 +10,7 @@
     <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@4.22.0/dist/tf.min.js"></script>
     
     <!-- JSZip for unzipping model files -->
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
 
     <!-- t-SNE implementation (CDN) -->
     <script src="https://cdn.jsdelivr.net/gh/karpathy/tsnejs@master/tsne.js"></script>
@@ -616,21 +616,52 @@
                 try {
                     if (type === 'custom_zip') {
                         if (file) {
+                            setLoading(true, "Reading Zip...", 50);
                             await this.loadZip(file);
                         }
                     } else if (modelFiles[type]) {
-                        // Fetch the zip file for presets
-                        const response = await fetch(modelFiles[type]);
+                        // Fetch the zip file for presets with progress monitoring
+                        const url = modelFiles[type];
+                        setLoading(true, "Downloading Model...", 0);
+
+                        const response = await fetch(url);
                         if (!response.ok) {
-                            throw new Error(`Failed to fetch model file: ${modelFiles[type]}`);
+                            throw new Error(`Failed to fetch model file: ${url}`);
                         }
-                        const blob = await response.blob();
+
+                        const contentLength = response.headers.get('content-length');
+                        const total = contentLength ? parseInt(contentLength, 10) : 0;
+                        let loaded = 0;
+
+                        const reader = response.body.getReader();
+                        const chunks = [];
+
+                        while (true) {
+                            const { done, value } = await reader.read();
+                            if (done) break;
+                            
+                            chunks.push(value);
+                            loaded += value.length;
+
+                            if (total) {
+                                const percent = (loaded / total) * 100;
+                                setLoading(true, `Downloading... ${Math.round(percent)}%`, percent);
+                            } else {
+                                // Fallback if no Content-Length
+                                setLoading(true, `Downloading... ${(loaded/1024/1024).toFixed(1)} MB`, 50);
+                            }
+                        }
+
+                        const blob = new Blob(chunks);
+                        setLoading(true, "Unzipping Model...", 100);
+                        await new Promise(r => setTimeout(r, 100)); // UI update delay
                         await this.loadZip(blob);
                     } else {
                         throw new Error("Unknown model type selected.");
                     }
                     
                     // Warmup immediately after load
+                    setLoading(true, "Warming up GPU...", 100);
                     await this.warmup();
 
                     return true;
